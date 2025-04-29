@@ -1,0 +1,12 @@
+# mangaui/backend/requirements.txt
+flask==2.0.1
+flask-cors==3.0.10
+torch==2.7.0
+pillow==9.0.0
+tqdm==4.62.3
+numpy==1.22.0
+pathlib==1.0.1
+diffusers
+transformers
+einops
+sentencepiece

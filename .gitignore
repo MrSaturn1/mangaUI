@@ -1,0 +1,45 @@
+# Dependencies
+**/node_modules/
+/frontend/node_modules/
+
+# Next.js build outputs
+/frontend/.next/
+/frontend/out/
+
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+**/env/
+**/venv/
+**/.venv/
+
+# ML model files and generated content
+/backend/drawatoon-v1/
+/backend/character_output/character_embeddings/*.pt
+/backend/character_output/character_images/keepers/*.png
+/backend/manga_output/**/*.png
+
+# Build artifacts
+**/dist/
+**/build/
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment variables
+**/.env*
+!**/.env.example
+
+# OS files
+.DS_Store
+*.pem
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts

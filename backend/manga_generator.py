@@ -1,0 +1,1038 @@
+import os
+import re
+import json
+import torch
+import argparse
+import numpy as np
+from pathlib import Path
+from tqdm import tqdm
+from PIL import Image, ImageDraw, ImageFont
+from diffusers import PixArtSigmaPipeline
+from torch.nn.utils.rnn import pad_sequence
+
+class PanelEstimator:
+    """Estimates appropriate number of panels for a scene based on content analysis"""
+    
+    def __init__(self):
+        # Manga panel allocation rules
+        self.panel_rules = {
+            'establishing_shot': 1,  # Always 1 panel to establish scene setting
+            'dialogue_exchange': 1.5,  # Approximately 1.5 panels per dialogue exchange
+            'action_sentence': 0.7,  # About 0.7 panels per significant action sentence
+            'location_change': 1,  # 1 panel for each location change within scene
+            'character_intro': 0.5,  # 0.5 panels when a new character appears
+            'max_per_scene': 12,  # Cap on panels per scene
+            'min_per_scene': 2,  # Minimum panels per scene
+        }
+    
+    def count_dialogue_exchanges(self, scene_elements):
+        """Count dialogue exchanges (speaker changes) in scene"""
+        exchanges = 0
+        prev_speaker = None
+        
+        for element in scene_elements:
+            if element['type'] == 'dialogue':
+                speaker = element['character']
+                if speaker != prev_speaker:
+                    exchanges += 1
+                    prev_speaker = speaker
+        
+        return exchanges
+    
+    def count_action_sentences(self, scene_elements):
+        """Count significant action sentences in scene"""
+        sentence_count = 0
+        
+        for element in scene_elements:
+            if element['type'] == 'action':
+                text = element['text']
+                # Split into sentences and count
+                sentences = re.split(r'[.!?]+', text)
+                # Filter out empty or very short sentences
+                sentences = [s.strip() for s in sentences if len(s.strip()) > 5]
+                sentence_count += len(sentences)
+        
+        return sentence_count
+    
+    def count_unique_characters(self, scene_elements):
+        """Count unique characters mentioned or speaking in scene"""
+        characters = set()
+        
+        for element in scene_elements:
+            if element['type'] == 'dialogue':
+                characters.add(element['character'])
+            
+        return len(characters)
+    
+    def estimate_panels(self, scene):
+        """Estimate appropriate number of panels for a scene"""
+        elements = scene['elements']
+        
+        # Base panel for establishing the scene
+        panel_count = self.panel_rules['establishing_shot']
+        
+        # Add panels for dialogue exchanges
+        dialogue_exchanges = self.count_dialogue_exchanges(elements)
+        panel_count += dialogue_exchanges * self.panel_rules['dialogue_exchange']
+        
+        # Add panels for action sentences
+        action_sentences = self.count_action_sentences(elements)
+        panel_count += action_sentences * self.panel_rules['action_sentence']
+        
+        # Add panels for character introductions
+        unique_characters = self.count_unique_characters(elements)
+        panel_count += min(unique_characters, 3) * self.panel_rules['character_intro']
+        
+        # Round to nearest whole number
+        panel_count = round(panel_count)
+        
+        # Apply min/max constraints
+        panel_count = max(panel_count, self.panel_rules['min_per_scene'])
+        panel_count = min(panel_count, self.panel_rules['max_per_scene'])
+        
+        return panel_count
+
+class ScreenplayParser:
+    def __init__(self, screenplay_path, character_data_path):
+        with open(screenplay_path, 'r', encoding='utf-8') as f:
+            self.screenplay_text = f.read()
+            
+        with open(character_data_path, 'r', encoding='utf-8') as f:
+            self.character_data = json.load(f)
+            
+        # Extract named characters for easy reference
+        self.named_characters = []
+        for character in self.character_data:
+            if character.get("character_type") == "NAMED":
+                self.named_characters.append(character["name"])
+        
+        # Initialize the panel estimator
+        self.panel_estimator = PanelEstimator()
+        
+        # Regex patterns for screenplay elements
+        self.scene_header_pattern = r'(INT\.|EXT\.|INT\/EXT\.)\s+([\w\s\-\'\,\.\!\?\&\;\:]+)\s*\-\s*([\w\s\-\'\,\.\!\?\&\;\:]+)'
+        self.character_name_pattern = r'^\s*([A-Z][A-Z\s\(\)\']+)(?:\s*\(.*\))?$'
+        self.dialogue_pattern = r'^\s{10,}([\w\s\-\'\,\.\!\?\&\;\:\"\…\[\]]+)$'
+        self.action_pattern = r'^(?!\s{10,})([\w\s\-\'\,\.\!\?\&\;\:\"\…\[\]]+)$'
+    
+    def parse(self):
+        """Parse the screenplay into a structured format"""
+        lines = self.screenplay_text.split('\n')
+        
+        scenes = []
+        current_scene = {}
+        current_dialogue = None
+        
+        for line in lines:
+            # Check for scene header
+            scene_match = re.match(self.scene_header_pattern, line)
+            if scene_match:
+                if current_scene:
+                    scenes.append(current_scene)
+                
+                interior_exterior, location, time = scene_match.groups()
+                current_scene = {
+                    'location': location.strip(),
+                    'time': time.strip(),
+                    'interior_exterior': interior_exterior,
+                    'elements': []
+                }
+                continue
+            
+            # Check for character names
+            char_match = re.match(self.character_name_pattern, line)
+            if char_match:
+                character_name = char_match.group(1).strip()
+                # Check if this is actually a character name in our list
+                if any(char == character_name for char in self.named_characters):
+                    current_dialogue = {
+                        'character': character_name,
+                        'dialogue': [],
+                        'type': 'dialogue'
+                    }
+                    current_scene['elements'].append(current_dialogue)
+                continue
+            
+            # Check for dialogue
+            if current_dialogue and re.match(self.dialogue_pattern, line):
+                dialogue_text = re.match(self.dialogue_pattern, line).group(1)
+                current_dialogue['dialogue'].append(dialogue_text.strip())
+                continue
+                
+            # Check for action lines (anything that's not dialogue or character names)
+            action_match = re.match(self.action_pattern, line)
+            if action_match and line.strip():
+                action_text = action_match.group(1).strip()
+                if action_text:  # Skip empty lines
+                    current_scene['elements'].append({
+                        'type': 'action',
+                        'text': action_text
+                    })
+        
+        # Add the last scene
+        if current_scene:
+            scenes.append(current_scene)
+            
+        # Estimate panel count for each scene
+        for scene in scenes:
+            estimated_panels = self.panel_estimator.estimate_panels(scene)
+            scene['estimated_panels'] = estimated_panels
+            
+        return scenes
+    
+    def get_character_descriptions(self, character_name):
+        """Get all descriptions for a specific character"""
+        for character in self.character_data:
+            if character["name"] == character_name:
+                return character.get("descriptions", [])
+        return []
+    
+    def analyze_panel_content(self, scene_element):
+        """Determine what should be in a panel based on the scene element"""
+        if scene_element['type'] == 'dialogue':
+            character = scene_element['character']
+            descriptions = self.get_character_descriptions(character)
+            
+            # Combine descriptions to create a character appearance prompt
+            character_prompt = f"{character}, " + ", ".join(descriptions[:3])
+            
+            return {
+                'type': 'dialogue',
+                'character': character,
+                'character_prompt': character_prompt,
+                'dialogue': " ".join(scene_element['dialogue']),
+                'characters_present': [character]
+            }
+        elif scene_element['type'] == 'action':
+            text = scene_element['text']
+            
+            # Extract mentioned characters from action text
+            mentioned_characters = []
+            for character in self.named_characters:
+                if character in text:
+                    mentioned_characters.append(character)
+            
+            return {
+                'type': 'action',
+                'text': text,
+                'characters_present': mentioned_characters
+            }
+        
+        return None
+
+    def generate_panel_prompts(self, scenes, start_scene=0, end_scene=None):
+        """Convert scenes to panel prompts for image generation using dynamic panel count"""
+        all_panels = []
+        
+        # Handle scene range
+        if end_scene is None:
+            end_scene = len(scenes)
+        else:
+            end_scene = min(end_scene, len(scenes))
+        
+        for scene_index in range(start_scene, end_scene):
+            scene = scenes[scene_index]
+            location = scene['location']
+            time = scene['time']
+            interior_exterior = scene['interior_exterior']
+            
+            # Get estimated panel count for this scene
+            max_panels = scene['estimated_panels']
+            print(f"Scene {scene_index}: {location} - {time} - Estimated panels: {max_panels}")
+            
+            # Basic setting description to include in prompts
+            setting_prompt = f"{interior_exterior} {location}, {time}, manga panel"
+            
+            # Initialize variables for panel creation
+            panel_count = 0
+            current_panel = {
+                'setting': setting_prompt,
+                'elements': [],
+                'characters': set(),
+                'scene_index': scene_index
+            }
+            
+            # Track whether we've created an establishing shot
+            establishing_shot_created = False
+            
+            # First, create an establishing shot if there are enough elements
+            if len(scene['elements']) > 2 and not establishing_shot_created:
+                # Look for the first action element to use for establishing shot
+                for element in scene['elements']:
+                    if element['type'] == 'action':
+                        panel_content = self.analyze_panel_content(element)
+                        if panel_content:
+                            current_panel['elements'].append(panel_content)
+                            if 'characters_present' in panel_content:
+                                for character in panel_content['characters_present']:
+                                    current_panel['characters'].add(character)
+                            
+                            # Add the establishing shot panel
+                            all_panels.append(current_panel)
+                            panel_count += 1
+                            establishing_shot_created = True
+                            
+                            # Reset panel for the next one
+                            current_panel = {
+                                'setting': setting_prompt,
+                                'elements': [],
+                                'characters': set(),
+                                'scene_index': scene_index
+                            }
+                            break
+            
+            # Variables to track dialogue flow
+            prev_speaker = None
+            dialogue_elements = []
+            
+            # Process the remaining elements
+            for element in scene['elements']:
+                panel_content = self.analyze_panel_content(element)
+                
+                if not panel_content:
+                    continue
+                
+                # Special handling for dialogue
+                if panel_content['type'] == 'dialogue':
+                    current_speaker = panel_content['character']
+                    
+                    # Start a new panel if speaker changes
+                    if prev_speaker is not None and current_speaker != prev_speaker:
+                        # Add the accumulated dialogue to the current panel
+                        if dialogue_elements:
+                            for dialogue_element in dialogue_elements:
+                                current_panel['elements'].append(dialogue_element)
+                                if 'characters_present' in dialogue_element:
+                                    for character in dialogue_element['characters_present']:
+                                        current_panel['characters'].add(character)
+                            
+                            # Add the panel if it has elements
+                            if current_panel['elements']:
+                                all_panels.append(current_panel)
+                                panel_count += 1
+                            
+                            # Reset for next panel
+                            current_panel = {
+                                'setting': setting_prompt,
+                                'elements': [],
+                                'characters': set(),
+                                'scene_index': scene_index
+                            }
+                            dialogue_elements = []
+                    
+                    # Add to dialogue elements
+                    dialogue_elements.append(panel_content)
+                    prev_speaker = current_speaker
+                else:
+                    # For action elements
+                    
+                    # If we have accumulated dialogue, add it first
+                    if dialogue_elements:
+                        for dialogue_element in dialogue_elements:
+                            current_panel['elements'].append(dialogue_element)
+                            if 'characters_present' in dialogue_element:
+                                for character in dialogue_element['characters_present']:
+                                    current_panel['characters'].add(character)
+                        
+                        dialogue_elements = []
+                    
+                    # Add action to panel
+                    current_panel['elements'].append(panel_content)
+                    if 'characters_present' in panel_content:
+                        for character in panel_content['characters_present']:
+                            current_panel['characters'].add(character)
+                    
+                    # If panel is getting full or we're parsing a significant action
+                    if len(current_panel['elements']) >= 2:
+                        # Add the panel
+                        all_panels.append(current_panel)
+                        panel_count += 1
+                        
+                        # Reset for next panel
+                        current_panel = {
+                            'setting': setting_prompt,
+                            'elements': [],
+                            'characters': set(),
+                            'scene_index': scene_index
+                        }
+                
+                # Check if we've reached the panel limit for this scene
+                if panel_count >= max_panels:
+                    break
+            
+            # Add any remaining elements
+            # First add any accumulated dialogue
+            if dialogue_elements:
+                for dialogue_element in dialogue_elements:
+                    current_panel['elements'].append(dialogue_element)
+                    if 'characters_present' in dialogue_element:
+                        for character in dialogue_element['characters_present']:
+                            current_panel['characters'].add(character)
+            
+            # Add the final panel if it has elements
+            if current_panel['elements']:
+                all_panels.append(current_panel)
+        
+        return all_panels
+
+class MangaGenerator:
+    def __init__(self, model_path, character_data_path, character_embedding_path, output_dir):
+        # Load character data
+        with open(character_data_path, 'r', encoding='utf-8') as f:
+            self.character_data = json.load(f)
+
+        self.character_data_path = character_data_path
+        
+        # Load character embeddings (the mapping of characters to their generated images)
+        if os.path.exists(character_embedding_path):
+            with open(character_embedding_path, 'r') as f:
+                self.character_embeddings = json.load(f)
+        else:
+            print(f"Warning: Character embedding file not found at {character_embedding_path}")
+            self.character_embeddings = {}
+            
+        self.model_path = model_path
+        self.output_dir = Path(output_dir)
+        
+        # Create directories
+        self.panels_dir = self.output_dir / "panels"
+        self.pages_dir = self.output_dir / "pages"
+        self.panels_dir.mkdir(parents=True, exist_ok=True)
+        self.pages_dir.mkdir(parents=True, exist_ok=True)
+        # Load character embeddings map
+        self.load_character_embeddings()
+        
+        # Initialize the model pipeline
+        self.init_pipeline()
+    
+    def init_pipeline(self):
+        """Initialize the Drawatoon pipeline"""
+        # Use PixArtSigmaPipeline as that's what Drawatoon is based on
+        print("Loading model pipeline...")
+        self.pipe = PixArtSigmaPipeline.from_pretrained(
+            self.model_path,
+            torch_dtype=torch.float16
+        )
+        
+        # We need to patch the transformer's forward method just like in CharacterGenerator
+        def modified_forward(
+            self,
+            hidden_states,
+            encoder_hidden_states,
+            encoder_attention_mask,
+            ip_hidden_states=None,
+            ip_attention_mask=None,
+            text_bboxes=None,
+            character_bboxes=None,
+            reference_embeddings=None,
+            cfg_on_10_percent=False,
+            timestep=None,
+            added_cond_kwargs=None,
+            cross_attention_kwargs=None,
+            return_dict=True,
+        ):
+            """
+            The modified forward method that ensures the XOR condition is properly handled.
+            """
+            # Debug info
+            print(f"Modified forward called with:")
+            print(f"ip_hidden_states: {'Present' if ip_hidden_states is not None else 'None'}")
+            print(f"text_bboxes: {'Present' if text_bboxes is not None else 'None'}")
+            print(f"character_bboxes: {'Present' if character_bboxes is not None else 'None'}")
+            print(f"reference_embeddings: {'Present' if reference_embeddings is not None else 'None'}")
+
+            batch_size = len(hidden_states)
+            heights = [h.shape[-2] // self.config.patch_size for h in hidden_states]
+            widths = [w.shape[-1] // self.config.patch_size for w in hidden_states]
+            
+            # When using direct void embedding, ensure other params are None
+            if ip_hidden_states is not None:
+                # Force these to be None
+                text_bboxes = None
+                character_bboxes = None
+                reference_embeddings = None
+
+            if ip_hidden_states is None and text_bboxes is None and character_bboxes is None and reference_embeddings is None:
+                # Directly use the void embedding
+                void_embed = self.ip_adapter.void_ip_embed.weight
+                ip_hidden_states = void_embed.unsqueeze(0).expand(batch_size, 1, -1).to(hidden_states.device)
+                ip_attention_mask = torch.ones((batch_size, 1), device=hidden_states.device, dtype=torch.bool)
+            
+            # For the original code path, if we're using bboxes
+            if ip_hidden_states is None and (text_bboxes is not None or character_bboxes is not None or reference_embeddings is not None):
+                # Let the IP adapter generate the embeddings
+                ip_hidden_states, ip_attention_mask = self.ip_adapter(text_bboxes, character_bboxes, reference_embeddings, cfg_on_10_percent)
+            
+            # 1. Input
+            
+            hidden_states = [self.pos_embed(hs[None])[0] for hs in hidden_states]
+            attention_mask = [torch.ones(x.shape[0]) for x in hidden_states]
+            hidden_states = pad_sequence(hidden_states, batch_first=True)
+            attention_mask = pad_sequence(attention_mask, batch_first=True, padding_value=0).bool().to(hidden_states.device)
+            original_attention_mask = attention_mask
+
+            timestep, embedded_timestep = self.adaln_single(
+                timestep, added_cond_kwargs, batch_size=batch_size, hidden_dtype=hidden_states.dtype
+            )
+            
+            # ensure attention_mask is a bias, and give it a singleton query_tokens dimension
+            if attention_mask is not None and attention_mask.ndim == 2:
+                attention_mask = (1 - attention_mask.to(hidden_states.dtype)) * -10000.0
+                attention_mask = attention_mask.unsqueeze(1)
+
+            # convert encoder_attention_mask to a bias the same way we do for attention_mask
+            if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:
+                encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
+                encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
+
+            if self.caption_projection is not None:
+                encoder_hidden_states = self.caption_projection(encoder_hidden_states)
+                encoder_hidden_states = encoder_hidden_states.view(batch_size, -1, hidden_states.shape[-1])
+
+            # 2. Blocks
+            for block in self.transformer_blocks:
+                if torch.is_grad_enabled() and self.gradient_checkpointing:
+                    def create_custom_forward(module, return_dict=None):
+                        def custom_forward(*inputs):
+                            if return_dict is not None:
+                                return module(*inputs, return_dict=return_dict)
+                            else:
+                                return module(*inputs)
+                        return custom_forward
+
+                    ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+                    hidden_states = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(block),
+                        hidden_states,
+                        attention_mask,
+                        encoder_hidden_states,
+                        encoder_attention_mask,
+                        ip_hidden_states,
+                        ip_attention_mask,
+                        timestep,
+                        cross_attention_kwargs,
+                        None,
+                        **ckpt_kwargs,
+                    )
+                else:
+                    hidden_states = block(
+                        hidden_states,
+                        attention_mask=attention_mask,
+                        encoder_hidden_states=encoder_hidden_states,
+                        encoder_attention_mask=encoder_attention_mask,
+                        ip_hidden_states=ip_hidden_states,
+                        ip_attention_mask=ip_attention_mask,
+                        timestep=timestep,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                        class_labels=None,
+                    )
+
+            # 3. Output
+            shift, scale = (
+                self.scale_shift_table[None] + embedded_timestep[:, None].to(self.scale_shift_table.device)
+            ).chunk(2, dim=1)
+            hidden_states = self.norm_out(hidden_states)
+            # Modulation
+            hidden_states = hidden_states * (1 + scale.to(hidden_states.device)) + shift.to(hidden_states.device)
+            hidden_states = self.proj_out(hidden_states)
+            hidden_states = hidden_states.squeeze(1)
+
+            # unpatchify
+            outputs = []
+            for idx, (height, width) in enumerate(zip(heights, widths)):
+                _hidden_state = hidden_states[idx][original_attention_mask[idx]].reshape(
+                    shape=(height, width, self.config.patch_size, self.config.patch_size, self.out_channels)
+                )
+                _hidden_state = torch.einsum("hwpqc->chpwq", _hidden_state)
+                outputs.append(_hidden_state.reshape(
+                    shape=(self.out_channels, height * self.config.patch_size, width * self.config.patch_size)
+                ))
+            
+            if len(set([x.shape for x in outputs])) == 1:
+                outputs = torch.stack(outputs)
+
+            if not return_dict:
+                return (outputs,)
+
+            from diffusers.models.modeling_outputs import Transformer2DModelOutput
+            return Transformer2DModelOutput(sample=outputs)
+        
+        # Replace the transformer's forward method with our modified version
+        self.pipe.transformer.forward = modified_forward.__get__(self.pipe.transformer, self.pipe.transformer.__class__)
+        
+        # Use MPS for Mac M-series chips
+        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        print(f"Using device: {self.device}")
+        self.pipe = self.pipe.to(self.device)
+        
+        # Enable attention slicing for memory efficiency
+        self.pipe.enable_attention_slicing()
+        print("Model pipeline loaded successfully.")
+
+    def get_character_descriptions(self, character_name, max_desc=3):
+        """Get curated descriptions for a specific character"""
+        for character in self.character_data:
+            if character["name"] == character_name:
+                descriptions = character.get("descriptions", [])
+                # Return a limited number of the most important descriptions
+                return descriptions[:max_desc]
+        return []
+    
+    def load_character_from_keepers(self, character_name):
+        """Check if a character has an image in the keepers folder and load it"""
+        # Path to character_output/character_images/keepers directory
+        keepers_dir = Path(self.output_dir).parent / "character_output" / "character_images" / "keepers"
+        
+        # Check for character image in keepers folder
+        character_image_path = keepers_dir / f"{character_name}.png"
+        
+        if character_image_path.exists():
+            return str(character_image_path)
+        return None
+    
+    def load_character_embeddings(self):
+        """Load the character embeddings map"""
+        embeddings_map_path = Path(self.output_dir).parent / "character_embeddings" / "character_embeddings_map.json"
+        
+        if embeddings_map_path.exists():
+            with open(embeddings_map_path, 'r') as f:
+                self.character_embedding_map = json.load(f)
+            print(f"Loaded {len(self.character_embedding_map)} character embeddings")
+        else:
+            print(f"Warning: Character embeddings map not found at {embeddings_map_path}")
+            self.character_embedding_map = {}
+
+    def get_character_embedding(self, character_name):
+        """Get the embedding for a character"""
+        if character_name in self.character_embedding_map:
+            embedding_path = self.character_embedding_map[character_name]["embedding_path"]
+            
+            try:
+                # Load the embedding tensor
+                embedding = torch.load(embedding_path)
+                return embedding
+            except Exception as e:
+                print(f"Error loading embedding for {character_name}: {e}")
+        
+        return None
+
+    def prepare_panel_references(self, panel_data):
+        """Prepare character reference embeddings for a panel"""
+        characters = list(panel_data['characters'])
+        reference_embeddings = {}
+        
+        for character_name in characters:
+            embedding = self.get_character_embedding(character_name)
+            if embedding is not None:
+                reference_embeddings[character_name] = embedding
+                print(f"Using stored embedding for {character_name}")
+        
+        return reference_embeddings
+
+    def get_character_reference_embedding(self, character_name):
+        """Get embedding for a character, prioritizing images in the keepers folder"""
+        # Check if character exists in keepers folder
+        keeper_image_path = self.load_character_from_keepers(character_name)
+        
+        if keeper_image_path:
+            # Here you would implement code to create an embedding from the image
+            # This depends on your embedding method (CLIP, etc.)
+            # Example pseudocode:
+            # embedding = create_embedding_from_image(keeper_image_path)
+            # return embedding
+            print(f"Found keeper image for {character_name}: {keeper_image_path}")
+            return keeper_image_path
+        
+        # If not in keepers, check if it exists in the character_embeddings
+        elif character_name in self.character_embeddings:
+            return self.character_embeddings[character_name]["image_path"]
+        
+        return None
+    
+    def create_panel_prompt(self, panel_data):
+        """Create a comprehensive prompt for a manga panel"""
+        setting = panel_data['setting']
+        characters = list(panel_data['characters'])
+        elements = panel_data['elements']
+        
+        # Extract action and dialogue text
+        action_texts = []
+        dialogue_texts = []
+        
+        for element in elements:
+            if element['type'] == 'action':
+                action_texts.append(element['text'])
+            elif element['type'] == 'dialogue':
+                dialogue_texts.append(f"{element['character']} says: {element['dialogue']}")
+        
+        # Base prompt elements - using narrative style for PixArt
+        prompt_parts = [
+            "A black and white manga panel with screen tone showing"
+        ]
+        
+        # Add setting
+        prompt_parts.append(setting)
+        
+        # Add characters with their descriptions
+        for character_name in characters:
+            char_descriptions = self.get_character_descriptions(character_name)
+            
+            if char_descriptions:
+                char_prompt = f"{character_name} who is {', '.join(char_descriptions)}"
+                prompt_parts.append(char_prompt)
+            else:
+                prompt_parts.append(character_name)
+        
+        # Add actions if available
+        if action_texts:
+            action_prompt = " ".join(action_texts)
+            prompt_parts.append(action_prompt)
+        
+        # Create the final prompt in a more natural language style
+        prompt = " ".join(prompt_parts)
+        
+        # For dialogue, add speech bubble instructions
+        if dialogue_texts:
+            prompt += f". With speech bubble: {' '.join(dialogue_texts)}"
+            
+        return prompt
+    
+    def prepare_ip_adapter_inputs(self, panel_data):
+        """Prepare inputs for IPAdapter in the format expected by the model"""
+        # Get characters in the panel
+        characters = list(panel_data['characters'])
+        elements = panel_data['elements']
+        
+        # Initialize lists for both text boxes and character boxes
+        text_bboxes = []
+        character_bboxes = []
+        reference_embeddings = []
+        
+        # Extract dialogue elements
+        dialogue_elements = [elem for elem in elements if elem['type'] == 'dialogue']
+        
+        # Add text boxes for dialogue
+        for idx, dialogue_elem in enumerate(dialogue_elements):
+            # Position dialogue boxes at different locations
+            if idx == 0:
+                # Top right
+                text_bboxes.append([0.6, 0.1, 0.9, 0.3])
+            elif idx == 1:
+                # Middle left
+                text_bboxes.append([0.1, 0.4, 0.4, 0.6])
+            else:
+                # Bottom right
+                text_bboxes.append([0.6, 0.7, 0.9, 0.9])
+        
+        # Add character embeddings from keepers
+        for character_name in characters:
+            # Get embedding for this character
+            embedding = self.get_character_embedding(character_name)
+            
+            if embedding is not None:
+                # Place character in center of panel
+                character_bboxes.append([0.2, 0.2, 0.8, 0.8])
+                reference_embeddings.append(embedding)
+        
+        # Always wrap in batch format for consistent API
+        return [text_bboxes], [character_bboxes], [reference_embeddings]
+
+    def generate_panel(self, panel_data, panel_index, seed=None):
+        """Generate a manga panel based on panel data"""
+        # Create a specific prompt for this panel
+        prompt = self.create_panel_prompt(panel_data)
+        
+        # Standard negative prompt for manga
+        negative_prompt = "deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, malformed hands, blurry, ((((mutated hands and fingers)))), watermark, watermarked, oversaturated, censored, distorted hands, amputation, missing hands, obese, doubled face, double hands"
+        
+        # Set up generator for seed if provided
+        generator = None
+        if seed is not None:
+            generator = torch.Generator(device=self.device).manual_seed(seed)
+        
+        # Prepare inputs for IPAdapter
+        text_bboxes, character_bboxes, reference_embeddings = self.prepare_ip_adapter_inputs(panel_data)
+        
+        print(f"Generating panel {panel_index}: {prompt[:100]}...")
+        
+        # Report what we're using
+        char_count = len(character_bboxes[0]) if character_bboxes and character_bboxes[0] else 0
+        text_count = len(text_bboxes[0]) if text_bboxes and text_bboxes[0] else 0
+        print(f"Using {char_count} character references and {text_count} text boxes")
+        
+        try:
+            # Try to generate with higher resolution
+            image = self.pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=30,
+                guidance_scale=7.5,
+                width=512,
+                height=512,
+                generator=generator,
+                # Pass properly wrapped IPAdapter inputs
+                text_bboxes=text_bboxes,
+                character_bboxes=character_bboxes,
+                reference_embeddings=reference_embeddings,
+                cfg_on_10_percent=False
+            ).images[0]
+        except Exception as e:
+            print(f"Error during generation: {e}")
+            print("Trying with smaller resolution...")
+            # Fallback to lower resolution
+            image = self.pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=30,
+                guidance_scale=7.5,
+                width=384,
+                height=384,
+                generator=generator,
+                # Same inputs as above
+                text_bboxes=text_bboxes,
+                character_bboxes=character_bboxes,
+                reference_embeddings=reference_embeddings,
+                cfg_on_10_percent=False
+            ).images[0]
+        
+        # Save the image
+        output_path = self.panels_dir / f"panel_{panel_index:04d}.png"
+        image.save(output_path)
+        
+        # Save panel data alongside the image for reference
+        panel_info_path = self.panels_dir / f"panel_{panel_index:04d}.json"
+        with open(panel_info_path, 'w') as f:
+            # Convert set to list for JSON serialization
+            panel_data_json = panel_data.copy()
+            panel_data_json['characters'] = list(panel_data_json['characters'])
+            panel_data_json['prompt'] = prompt
+            panel_data_json['seed'] = seed
+            characters = list(panel_data['characters'])
+            panel_data_json['characters_with_embeddings'] = [
+                character for character in characters if self.get_character_embedding(character) is not None
+            ]
+            panel_data_json['text_boxes_count'] = text_count
+            json.dump(panel_data_json, f, indent=2)
+        
+        return output_path, panel_data
+    
+    def generate_manga_from_panels(self, panel_prompts, start_panel=0, end_panel=None, use_fixed_seed=False):
+        """Generate manga panels based on panel prompts"""
+        panel_paths = []
+        
+        # Handle panel range
+        if end_panel is None:
+            end_panel = len(panel_prompts)
+        else:
+            end_panel = min(end_panel, len(panel_prompts))
+        
+        # Subset of panels to generate
+        panels_to_generate = panel_prompts[start_panel:end_panel]
+        
+        for idx, panel_data in enumerate(tqdm(panels_to_generate, desc="Generating panels")):
+            # Use a fixed seed for reproducibility if requested
+            seed = 42 * (idx + 1) if use_fixed_seed else torch.randint(0, 2**32, (1,)).item()
+            
+            panel_path, data = self.generate_panel(panel_data, start_panel + idx, seed)
+            panel_paths.append({
+                'path': panel_path,
+                'data': data
+            })
+        
+        return panel_paths
+    
+    def create_manga_pages(self, panel_paths, panels_per_page=6):
+        """Arrange panels into manga pages"""
+        total_panels = len(panel_paths)
+        total_pages = (total_panels + panels_per_page - 1) // panels_per_page
+        
+        pages = []
+        
+        for page_idx in range(total_pages):
+            start_idx = page_idx * panels_per_page
+            end_idx = min(start_idx + panels_per_page, total_panels)
+            
+            page_panels = panel_paths[start_idx:end_idx]
+            page_path = self._create_page_layout(page_panels, page_idx)
+            pages.append(page_path)
+        
+        return pages
+    
+    def _create_page_layout(self, page_panels, page_idx):
+        """Create a page layout from panels"""
+        # For simplicity, we'll use a basic grid layout
+        # In a real implementation, you'd want a more sophisticated layout engine
+        
+        # Base page size (A4 proportions)
+        page_width = 1654
+        page_height = 2339
+        
+        page_image = Image.new('RGB', (page_width, page_height), (255, 255, 255))
+        draw = ImageDraw.Draw(page_image)
+        
+        num_panels = len(page_panels)
+        
+        if num_panels <= 2:
+            # Simple vertical stack
+            panel_height = page_height // num_panels
+            for i, panel_data in enumerate(page_panels):
+                panel_img = Image.open(panel_data['path'])
+                panel_img = panel_img.resize((page_width, panel_height), Image.LANCZOS)
+                page_image.paste(panel_img, (0, i * panel_height))
+        
+        elif num_panels <= 4:
+            # 2x2 grid
+            panel_width = page_width // 2
+            panel_height = page_height // 2
+            for i, panel_data in enumerate(page_panels):
+                row = i // 2
+                col = i % 2
+                panel_img = Image.open(panel_data['path'])
+                panel_img = panel_img.resize((panel_width, panel_height), Image.LANCZOS)
+                page_image.paste(panel_img, (col * panel_width, row * panel_height))
+        
+        else:
+            # 3x2 grid
+            panel_width = page_width // 2
+            panel_height = page_height // 3
+            for i, panel_data in enumerate(page_panels):
+                if i >= 6:  # Maximum 6 panels per page
+                    break
+                row = i // 2
+                col = i % 2
+                panel_img = Image.open(panel_data['path'])
+                panel_img = panel_img.resize((panel_width, panel_height), Image.LANCZOS)
+                page_image.paste(panel_img, (col * panel_width, row * panel_height))
+        
+        # Add page number
+        font_size = 36
+        try:
+            font = ImageFont.truetype("Arial.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+        
+        draw.text((page_width - 100, page_height - 50), f"Page {page_idx + 1}", fill=(0, 0, 0), font=font)
+        
+        # Save the page
+        output_path = self.pages_dir / f"page_{page_idx:03d}.png"
+        page_image.save(output_path)
+        
+        print(f"Created page {page_idx + 1} with {num_panels} panels")
+        return output_path
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate manga from screenplay using Drawatoon")
+    parser.add_argument("--model_path", type=str, default="./drawatoon-v1",
+                        help="Path to the Drawatoon model")
+    parser.add_argument("--screenplay", type=str, default="the-rat.txt",
+                        help="Path to screenplay text file")
+    parser.add_argument("--character_data", type=str, default="characters.json",
+                        help="Path to character data JSON file")
+    parser.add_argument("--character_embeddings", type=str, 
+                        default="character_output/character_embeddings.json",
+                        help="Path to character embeddings JSON file")
+    parser.add_argument("--output_dir", type=str, default="manga_output",
+                        help="Directory to save manga output")
+    parser.add_argument("--start_scene", type=int, default=0,
+                        help="Scene index to start generation from")
+    parser.add_argument("--end_scene", type=int, default=None,
+                        help="Scene index to end generation at (exclusive)")
+    parser.add_argument("--start_panel", type=int, default=0,
+                        help="Panel index to start generation from")
+    parser.add_argument("--end_panel", type=int, default=None,
+                        help="Panel index to end generation at (exclusive)")
+    parser.add_argument("--panels_per_page", type=int, default=6,
+                        help="Number of panels per manga page")
+    parser.add_argument("--fixed_seed", action="store_true",
+                        help="Use fixed seeds for reproducibility")
+    parser.add_argument("--parse_only", action="store_true",
+                        help="Only parse the screenplay without generating images")
+    
+    args = parser.parse_args()
+    
+    # Create output directory
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Parse the screenplay
+    print(f"Parsing screenplay: {args.screenplay}")
+    parser = ScreenplayParser(args.screenplay, args.character_data)
+    scenes = parser.parse()
+    print(f"Found {len(scenes)} scenes in the screenplay")
+    
+    # Save the parsed scenes for reference
+    scenes_path = Path(args.output_dir) / "parsed_scenes.json"
+    with open(scenes_path, 'w') as f:
+        json.dump(scenes, f, indent=2)
+    print(f"Saved parsed scenes to {scenes_path}")
+    
+    # Generate panel prompts with dynamic panel estimation
+    print("Generating panel prompts with dynamic panel allocation...")
+    panel_prompts = parser.generate_panel_prompts(
+        scenes, 
+        start_scene=args.start_scene,
+        end_scene=args.end_scene
+    )
+    print(f"Generated {len(panel_prompts)} panel prompts")
+    
+    # Save panel prompts for reference
+    prompts_path = Path(args.output_dir) / "panel_prompts.json"
+    
+    # Convert sets to lists for JSON serialization
+    serializable_prompts = []
+    for prompt in panel_prompts:
+        prompt_copy = prompt.copy()
+        prompt_copy['characters'] = list(prompt_copy['characters'])
+        serializable_prompts.append(prompt_copy)
+    
+    with open(prompts_path, 'w') as f:
+        json.dump(serializable_prompts, f, indent=2)
+    print(f"Saved panel prompts to {prompts_path}")
+    
+    if args.parse_only:
+        print("Parsed screenplay and generated prompts. Exiting as requested.")
+        return
+    
+    # Initialize manga generator and generate panels
+    print("Initializing manga generator...")
+    manga_generator = MangaGenerator(
+        model_path=args.model_path,
+        character_data_path=args.character_data,
+        character_embedding_path=args.character_embeddings,
+        output_dir=args.output_dir
+    )
+    
+    # Generate panels
+    print("Generating manga panels...")
+    panel_paths = manga_generator.generate_manga_from_panels(
+        panel_prompts,
+        start_panel=args.start_panel,
+        end_panel=args.end_panel,
+        use_fixed_seed=args.fixed_seed
+    )
+    
+    # Create manga pages
+    print("Creating manga pages...")
+    pages = manga_generator.create_manga_pages(panel_paths, args.panels_per_page)
+    
+    print(f"Generated {len(pages)} manga pages from screenplay.")
+    print(f"Output saved to {args.output_dir}")
+    
+    # Create a summary file
+    summary_path = Path(args.output_dir) / "manga_summary.txt"
+    with open(summary_path, 'w') as f:
+        f.write(f"Manga Generation Summary\n")
+        f.write(f"======================\n\n")
+        f.write(f"Screenplay: {args.screenplay}\n")
+        f.write(f"Total scenes in screenplay: {len(scenes)}\n")
+        f.write(f"Scenes processed: {args.start_scene} to {args.end_scene if args.end_scene else len(scenes)}\n")
+        f.write(f"Total panels generated: {len(panel_paths)}\n")
+        f.write(f"Total pages created: {len(pages)}\n")
+        f.write(f"Panels per page: {args.panels_per_page}\n\n")
+        f.write(f"Page listing:\n")
+        for i, page in enumerate(pages):
+            f.write(f"  Page {i+1}: {page}\n")
+    
+    print(f"Summary written to {summary_path}")
+
+if __name__ == "__main__":
+    main()
