@@ -1,6 +1,6 @@
 // components/MangaEditor.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Stage, Layer, Rect, Image as KonvaImage, Transformer } from 'react-konva';
+import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Line } from 'react-konva';
 import { KonvaEventObject } from 'konva/lib/Node';
 
 interface Character {
@@ -43,21 +43,30 @@ interface Panel {
   dialoguePositions: Position[];
   actions: ActionItem[];
   isGenerating?: boolean;
+  generationQueued?: boolean;
+  queueMessage?: string;
 }
 
 interface MangaEditorProps {
   characters: Character[];
+  apiEndpoint?: string; // Base API endpoint URL
 }
 
-const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
+const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'http://localhost:5000/api' }) => {
   // Page state
-  const [pageSize, setPageSize] = useState({ width: 1654, height: 2339 }); // A4 proportions
+  const [pageSize, setPageSize] = useState({ width: 1500, height: 2250 }); // A4 proportions
   const [pageIndex, setPageIndex] = useState<number>(0);
   const [scale, setScale] = useState<number>(0.3); // Scale for the canvas
   
   // Panels state
   const [panels, setPanels] = useState<Panel[]>([]);
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
+  // State for tracking queued panel requests
+  const [queuedPanelRequests, setQueuedPanelRequests] = useState<{[key: string]: {
+    panelId: string;
+    requestId: string;
+    checkInterval: NodeJS.Timeout | null;
+  }}>({});
   
   // Refs
   const stageRef = useRef<any>(null);
@@ -65,68 +74,44 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
   
   // Get the selected panel
   const selectedPanel = panels.find(p => p.id === selectedPanelId);
+
+  // Helper lines and snapping
+  const [guides, setGuides] = useState<{x: number[], y: number[]}>({x: [], y: []});
+  const [showGuides, setShowGuides] = useState(false);
+  const [snapThreshold, setSnapThreshold] = useState<number>(10); // In pixels, adjust as needed
+  const [isSnappingEnabled, setIsSnappingEnabled] = useState<boolean>(true);
   
   // Effect to add some default panels on first load
   useEffect(() => {
     if (panels.length === 0) {
-      // Add some default panels in a 2x2 grid
-      const panelWidth = pageSize.width / 2;
-      const panelHeight = pageSize.height / 2;
+      // Create 6 panels in a 3x2 grid with gaps
+      const gap = 20; // Gap between panels in page units
+      const cols = 3;
+      const rows = 2;
       
-      const defaultPanels: Panel[] = [
-        {
-          id: 'panel-1',
-          x: 0,
-          y: 0,
-          width: panelWidth,
-          height: panelHeight,
-          characterNames: [],
-          characterPositions: [],
-          dialogues: [],
-          dialoguePositions: [],
-          actions: [],
-          panelIndex: 0
-        },
-        {
-          id: 'panel-2',
-          x: panelWidth,
-          y: 0,
-          width: panelWidth,
-          height: panelHeight,
-          characterNames: [],
-          characterPositions: [],
-          dialogues: [],
-          dialoguePositions: [],
-          actions: [],
-          panelIndex: 1
-        },
-        {
-          id: 'panel-3',
-          x: 0,
-          y: panelHeight,
-          width: panelWidth,
-          height: panelHeight,
-          characterNames: [],
-          characterPositions: [],
-          dialogues: [],
-          dialoguePositions: [],
-          actions: [],
-          panelIndex: 2
-        },
-        {
-          id: 'panel-4',
-          x: panelWidth,
-          y: panelHeight,
-          width: panelWidth,
-          height: panelHeight,
-          characterNames: [],
-          characterPositions: [],
-          dialogues: [],
-          dialoguePositions: [],
-          actions: [],
-          panelIndex: 3
+      // Calculate panel dimensions with gaps
+      const panelWidth = (pageSize.width - (gap * (cols + 1))) / cols;
+      const panelHeight = (pageSize.height - (gap * (rows + 1))) / rows;
+      
+      const defaultPanels: Panel[] = [];
+      
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          defaultPanels.push({
+            id: `panel-${row * cols + col}`,
+            x: gap + col * (panelWidth + gap),
+            y: gap + row * (panelHeight + gap),
+            width: panelWidth,
+            height: panelHeight,
+            characterNames: [],
+            characterPositions: [],
+            dialogues: [],
+            dialoguePositions: [],
+            actions: [],
+            panelIndex: row * cols + col
+          });
         }
-      ];
+      }
       
       setPanels(defaultPanels);
     }
@@ -146,6 +131,18 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
       transformerRef.current.getLayer().batchDraw();
     }
   }, [selectedPanelId]);
+
+  // Clean up intervals on unmount
+  useEffect(() => {
+    return () => {
+      // Clean up any pending check intervals
+      Object.values(queuedPanelRequests).forEach(request => {
+        if (request.checkInterval) {
+          clearInterval(request.checkInterval);
+        }
+      });
+    };
+  }, [queuedPanelRequests]);
   
   // Handler for selecting a panel
   const handlePanelSelect = (panelId: string) => {
@@ -192,14 +189,21 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
     const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
     if (panelIndex === -1) return;
     
+    // Calculate actual dimensions (accounting for scale)
+    // This is the key fix - convert from canvas coordinates to model coordinates
+    const actualX = node.x() / scale;
+    const actualY = node.y() / scale;
+    const actualWidth = (node.width() * node.scaleX()) / scale;
+    const actualHeight = (node.height() * node.scaleY()) / scale;
+    
     // Update the panel with new dimensions
     const updatedPanels = [...panels];
     updatedPanels[panelIndex] = {
       ...updatedPanels[panelIndex],
-      x: node.x(),
-      y: node.y(),
-      width: node.width() * node.scaleX(),
-      height: node.height() * node.scaleY()
+      x: actualX,
+      y: actualY,
+      width: actualWidth,
+      height: actualHeight
     };
     
     // Reset scale after updating dimensions
@@ -209,9 +213,115 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
     setPanels(updatedPanels);
   };
   
-  // Handler for panel drag
+  // Helper function to find the closest guide
+  const getSnapPosition = (position: number, guides: number[]): number | null => {
+    // Find closest guide within threshold
+    let closest = null;
+    let minDistance = snapThreshold;
+    
+    guides.forEach(guide => {
+      const distance = Math.abs(position - guide);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closest = guide;
+      }
+    });
+    
+    return closest;
+  };
+
+  // Modified drag move handler
+  const handleDragMove = (e: KonvaEventObject<DragEvent>) => {
+    if (!selectedPanelId) return;
+    
+    const node = e.target;
+    const nodeWidth = node.width() * node.scaleX();
+    const nodeHeight = node.height() * node.scaleY();
+
+    // If snapping is disabled, just clear guides and return
+    if (!isSnappingEnabled) {
+      setGuides({ x: [], y: [] });
+      setShowGuides(false);
+      return;
+    }
+    
+    // Initial position
+    let x = node.x();
+    let y = node.y();
+    
+    // Generate guides for other panel edges and center lines
+    const xGuides: number[] = [];
+    const yGuides: number[] = [];
+    
+    // Add guides for each panel edge and centers
+    panels.forEach(panel => {
+      if (panel.id !== selectedPanelId) {
+        // Panel edges (scaled for canvas)
+        const panelLeft = panel.x * scale;
+        const panelRight = (panel.x + panel.width) * scale;
+        const panelTop = panel.y * scale;
+        const panelBottom = (panel.y + panel.height) * scale;
+        const panelCenterX = (panel.x + panel.width / 2) * scale;
+        const panelCenterY = (panel.y + panel.height / 2) * scale;
+        
+        // Edge guides
+        xGuides.push(panelLeft);           // Left edge
+        xGuides.push(panelRight);          // Right edge
+        xGuides.push(panelCenterX);        // Center X
+        
+        // Also add guides for aligned right/left edges
+        xGuides.push(panelLeft - nodeWidth);  // My right to their left
+        xGuides.push(panelRight - nodeWidth); // My right to their right
+        
+        yGuides.push(panelTop);            // Top edge
+        yGuides.push(panelBottom);         // Bottom edge
+        yGuides.push(panelCenterY);        // Center Y
+        
+        // Also add guides for aligned top/bottom edges
+        yGuides.push(panelTop - nodeHeight);   // My bottom to their top
+        yGuides.push(panelBottom - nodeHeight); // My bottom to their bottom
+      }
+    });
+    
+    // Add page boundary guides
+    xGuides.push(0);                       // Left page edge
+    xGuides.push(pageSize.width * scale);  // Right page edge
+    xGuides.push((pageSize.width * scale) / 2); // Page center X
+    
+    yGuides.push(0);                       // Top page edge
+    yGuides.push(pageSize.height * scale); // Bottom page edge
+    yGuides.push((pageSize.height * scale) / 2); // Page center Y
+    
+    // Add guides for equal spacing
+    // (more complex - implement if needed)
+    
+    // Find snap positions
+    const snapX = getSnapPosition(x, xGuides);
+    const snapY = getSnapPosition(y, yGuides);
+    
+    // Apply snapping if within threshold
+    if (snapX !== null) {
+      node.x(snapX);
+    }
+    
+    if (snapY !== null) {
+      node.y(snapY);
+    }
+    
+    // Show guidelines
+    setGuides({ 
+      x: snapX !== null ? [snapX] : [], 
+      y: snapY !== null ? [snapY] : [] 
+    });
+    setShowGuides(true);
+  };
+
+  // Update the drag end handler
   const handleDragEnd = (e: KonvaEventObject<DragEvent>) => {
     if (!selectedPanelId) return;
+    
+    // Hide guides
+    setShowGuides(false);
     
     // Get the node
     const node = e.target;
@@ -224,8 +334,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
     const updatedPanels = [...panels];
     updatedPanels[panelIndex] = {
       ...updatedPanels[panelIndex],
-      x: node.x(),
-      y: node.y()
+      x: node.x() / scale, // Convert back from canvas units to model units
+      y: node.y() / scale
     };
     
     setPanels(updatedPanels);
@@ -429,6 +539,11 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
     try {
       // Prepare the data for the API
       const panel = panels[panelIndex];
+      
+      // Convert panel dimensions from model coordinates to absolute pixel values
+      const pixelWidth = Math.round(panel.width);
+      const pixelHeight = Math.round(panel.height);
+      
       const apiData = {
         prompt: panel.prompt || '',
         setting: panel.setting || '',
@@ -438,11 +553,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
         dialogues: panel.dialogues,
         actions: panel.actions,
         panelIndex: panel.panelIndex || 0,
-        seed: panel.seed || Math.floor(Math.random() * 1000000)
+        seed: panel.seed || Math.floor(Math.random() * 1000000),
+        width: pixelWidth,
+        height: pixelHeight
       };
       
       // Call the API
-      const response = await fetch('http://localhost:5000/api/generate_panel', {
+      const response = await fetch(`${apiEndpoint}/generate_panel`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -452,19 +569,45 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
       
       const data = await response.json();
       
-      if (data.status === 'success') {
-        // Update the panel with the generated image
+      // Check if the request was queued (models still initializing)
+      if (data.status === 'queued') {
+        // Show a message that the request is queued
+        console.log(`Panel generation queued. Request ID: ${data.request_id}`);
+        
+        // Setup polling to check status
+        const requestId = data.request_id;
+        
+        // Create an interval to check the status
+        const checkInterval = setInterval(() => {
+          checkPanelStatus(requestId, selectedPanelId);
+        }, 1000); // Check every second
+        
+        // Save the request info
+        setQueuedPanelRequests(prev => ({
+          ...prev,
+          [selectedPanelId]: {
+            panelId: selectedPanelId,
+            requestId: requestId,
+            checkInterval
+          }
+        }));
+        
+        // Update the panel with "queued" status
         const newPanels = [...panels];
         newPanels[panelIndex] = {
           ...newPanels[panelIndex],
-          imageData: data.imageData,
-          prompt: data.prompt || newPanels[panelIndex].prompt,
-          isGenerating: false,
-          seed: apiData.seed // Store the used seed
+          isGenerating: true,
+          generationQueued: true,
+          queueMessage: data.message
         };
         
         setPanels(newPanels);
+        
+      } else if (data.status === 'success') {
+        // Handle immediate success (models were already initialized)
+        handlePanelGenerationComplete(data, selectedPanelId);
       } else {
+        // Handle error
         console.error('Error generating panel:', data.message);
         alert(`Error generating panel: ${data.message}`);
         
@@ -483,6 +626,80 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
       setPanels(newPanels);
     }
   };
+
+  // Function to check status of queued panel request
+  const checkPanelStatus = async (requestId: string, panelId: string) => {
+    try {
+      const response = await fetch(`${apiEndpoint}/check_panel_status?request_id=${requestId}`);
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        // Panel generation completed successfully
+        handlePanelGenerationComplete(data, panelId);
+        
+        // Clean up the interval
+        if (queuedPanelRequests[panelId]?.checkInterval) {
+          clearInterval(queuedPanelRequests[panelId].checkInterval);
+        }
+        
+        // Remove from queued requests
+        setQueuedPanelRequests(prev => {
+          const newRequests = {...prev};
+          delete newRequests[panelId];
+          return newRequests;
+        });
+        
+      } else if (data.status === 'error') {
+        // Handle error
+        console.error('Error in queued panel generation:', data.message);
+        alert(`Error generating panel: ${data.message}`);
+        
+        // Mark the panel as not generating
+        const panelIndex = panels.findIndex(p => p.id === panelId);
+        if (panelIndex !== -1) {
+          const newPanels = [...panels];
+          newPanels[panelIndex].isGenerating = false;
+          newPanels[panelIndex].generationQueued = false;
+          setPanels(newPanels);
+        }
+        
+        // Clean up the interval
+        if (queuedPanelRequests[panelId]?.checkInterval) {
+          clearInterval(queuedPanelRequests[panelId].checkInterval);
+        }
+        
+        // Remove from queued requests
+        setQueuedPanelRequests(prev => {
+          const newRequests = {...prev};
+          delete newRequests[panelId];
+          return newRequests;
+        });
+      }
+      // If status is 'processing', continue polling
+    } catch (error) {
+      console.error('Error checking panel status:', error);
+    }
+  };
+  
+  // Handle successful panel generation completion
+  const handlePanelGenerationComplete = (data: any, panelId: string) => {
+    // Find the panel
+    const panelIndex = panels.findIndex(p => p.id === panelId);
+    if (panelIndex === -1) return;
+    
+    // Update the panel with the generated image
+    const newPanels = [...panels];
+    newPanels[panelIndex] = {
+      ...newPanels[panelIndex],
+      imageData: data.imageData,
+      prompt: data.prompt || newPanels[panelIndex].prompt,
+      isGenerating: false,
+      generationQueued: false,
+      seed: data.seed // Store the used seed
+    };
+    
+    setPanels(newPanels);
+  };
   
   // Handler for saving the page
   const handleSavePage = async () => {
@@ -491,9 +708,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
   };
   
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 p-4">
-      {/* Canvas Area - Takes up 3/5 of the screen on large displays */}
-      <div className="lg:col-span-3 bg-white rounded-lg shadow-lg p-4">
+    <div className="grid grid-cols-1 lg:grid-cols-6 gap-4 p-4">
+      {/* Canvas Area - Takes up 5/6 of the screen on large displays */}
+      <div className="lg:col-span-5 bg-white rounded-lg shadow-lg p-4 overflow-hidden">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold">Page Editor</h2>
           
@@ -517,6 +734,21 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
             >
               Save Page
             </button>
+            <div className="flex items-center mb-4">
+              <label htmlFor="snapping-toggle" className="inline-flex items-center cursor-pointer">
+                <span className="mr-3 text-sm font-medium text-gray-900">Snapping</span>
+                <div className="relative">
+                  <input 
+                    id="snapping-toggle" 
+                    type="checkbox" 
+                    checked={isSnappingEnabled}
+                    onChange={(e) => setIsSnappingEnabled(e.target.checked)}
+                    className="sr-only peer" 
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </div>
+              </label>
+            </div>
           </div>
         </div>
         
@@ -550,6 +782,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                   onClick={() => handlePanelSelect(panel.id)}
                   onTap={() => handlePanelSelect(panel.id)}
                   draggable
+                  onDragMove={handleDragMove}
                   onDragEnd={handleDragEnd}
                 />
               ))}
@@ -586,9 +819,33 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                 }}
                 onTransformEnd={handleTransformEnd}
                 padding={5}
-                enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+                // Enable all anchors for full resizing control
+                enabledAnchors={[
+                  'top-left', 'top-center', 'top-right',
+                  'middle-left', 'middle-right',
+                  'bottom-left', 'bottom-center', 'bottom-right'
+                ]}
                 rotateEnabled={false}
               />
+              {/* Guide lines */}
+              {showGuides && guides.x.map((x, i) => (
+                <Line 
+                  key={`x-${i}`}
+                  points={[x, 0, x, pageSize.height * scale]}
+                  stroke="#0066FF"
+                  strokeWidth={1}
+                  dash={[5, 5]}
+                />
+              ))}
+              {showGuides && guides.y.map((y, i) => (
+                <Line 
+                  key={`y-${i}`}
+                  points={[0, y, pageSize.width * scale, y]}
+                  stroke="#0066FF"
+                  strokeWidth={1}
+                  dash={[5, 5]}
+                />
+              ))}
             </Layer>
           </Stage>
           
@@ -601,10 +858,10 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
         </div>
       </div>
       
-      {/* Panel Editor Controls - Takes up 2/5 of the screen on large displays */}
-      <div className="lg:col-span-2 bg-white rounded-lg shadow-lg p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 2rem)' }}>
+      {/* Panel Editor Controls - Takes up 1/6 of the screen on large displays */}
+      <div className="lg:col-span-1 bg-white rounded-lg shadow-lg p-4" style={{ maxHeight: 'calc(100vh - 2rem)', overflow: 'auto', overflowX: 'hidden' }}>
         {selectedPanel ? (
-          <div>
+          <div className="overflow-visible">
             <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
             
             <div className="space-y-6">
@@ -613,7 +870,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                 
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Panel Index</label>
+                    <label className="block text-sm font-medium text-black mb-1">Panel Index</label>
                     <input
                       type="number"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
@@ -631,7 +888,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Seed</label>
+                    <label className="block text-sm font-medium text-black mb-1">Seed</label>
                     <div className="flex space-x-2">
                       <input
                         type="number"
@@ -666,7 +923,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                 </div>
                 
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Setting</label>
+                  <label className="block text-sm font-medium text-black mb-1">Setting</label>
                   <input
                     type="text"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
@@ -677,7 +934,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                 </div>
                 
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Custom Prompt (optional)</label>
+                  <label className="block text-sm font-medium text-black mb-1">Custom Prompt (optional)</label>
                   <textarea
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     value={selectedPanel.prompt || ''}
@@ -725,7 +982,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                   ))}
                   
                   {selectedPanel.characterNames.length === 0 && (
-                    <div className="text-gray-500 italic">No characters added</div>
+                    <div className="text-black italic">No characters added</div>
                   )}
                 </div>
               </div>
@@ -745,7 +1002,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                   {selectedPanel.dialogues.map((dialogue, index) => (
                     <div key={`dialogue-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
                       <div className="mb-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Character</label>
+                        <label className="block text-sm font-medium text-black mb-1">Character</label>
                         <select
                           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                           value={dialogue.character}
@@ -759,7 +1016,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                       </div>
                       
                       <div className="mb-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Text</label>
+                        <label className="block text-sm font-medium text-black mb-1">Text</label>
                         <textarea
                           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                           value={dialogue.text}
@@ -779,7 +1036,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                   ))}
                   
                   {selectedPanel.dialogues.length === 0 && (
-                    <div className="text-gray-500 italic">No dialogues added</div>
+                    <div className="text-black italic">No dialogues added</div>
                   )}
                 </div>
               </div>
@@ -799,7 +1056,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                   {selectedPanel.actions.map((action, index) => (
                     <div key={`action-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
                       <div className="mb-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Text</label>
+                        <label className="block text-sm font-medium text-black mb-1">Text</label>
                         <textarea
                           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                           value={action.text}
@@ -819,7 +1076,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
                   ))}
                   
                   {selectedPanel.actions.length === 0 && (
-                    <div className="text-gray-500 italic">No actions added</div>
+                    <div className="text-black italic">No actions added</div>
                   )}
                 </div>
               </div>
@@ -838,7 +1095,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters }) => {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+          <div className="flex flex-col items-center justify-center h-64 text-black">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>

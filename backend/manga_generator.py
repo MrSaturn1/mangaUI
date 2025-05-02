@@ -399,11 +399,15 @@ class MangaGenerator:
         self.pages_dir = self.output_dir / "pages"
         self.panels_dir.mkdir(parents=True, exist_ok=True)
         self.pages_dir.mkdir(parents=True, exist_ok=True)
+        
         # Load character embeddings map
         self.load_character_embeddings()
         
         # Initialize the model pipeline
         self.init_pipeline()
+        
+        # Initialize the upscaler
+        self.init_upscaler()
     
     def init_pipeline(self):
         """Initialize the Drawatoon pipeline"""
@@ -569,6 +573,41 @@ class MangaGenerator:
         self.pipe.enable_attention_slicing()
         print("Model pipeline loaded successfully.")
 
+    def init_upscaler(self):
+        """Initialize the upscaler during model setup"""
+        print("Initializing upscaler...")
+        try:
+            # Try to import and initialize RealESRGAN
+            from realesrgan import RealESRGANer
+            from basicsr.archs.rrdbnet_arch import RRDBNet
+            
+            # Initialize RealESRGAN
+            model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32)
+            
+            device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+            print(f"Initializing upscaler on device: {device}")
+            
+            self.upsampler = RealESRGANer(
+                device,
+                scale=2,
+                model_path=None,  # Will download automatically first time
+                model=model,
+                half=False if device == 'cpu' else True  # Half precision for GPU, full for CPU
+            )
+            
+            print("RealESRGAN upscaler initialized successfully")
+            self.has_upscaler = True
+            
+        except ImportError as e:
+            print(f"Warning: RealESRGAN not available - {e}")
+            print("Using standard PIL for upscaling. For better quality, install realesrgan and basicsr.")
+            self.has_upscaler = False
+            self.upsampler = None
+        except Exception as e:
+            print(f"Error initializing upscaler: {e}")
+            self.has_upscaler = False
+            self.upsampler = None
+
     def get_character_descriptions(self, character_name, max_desc=3):
         """Get curated descriptions for a specific character"""
         for character in self.character_data:
@@ -592,7 +631,7 @@ class MangaGenerator:
     
     def load_character_embeddings(self):
         """Load the character embeddings map"""
-        embeddings_map_path = Path(self.output_dir).parent / "character_embeddings" / "character_embeddings_map.json"
+        embeddings_map_path = Path("character_output") / "character_embeddings" / "character_embeddings_map.json"
         
         if embeddings_map_path.exists():
             with open(embeddings_map_path, 'r') as f:
@@ -697,6 +736,89 @@ class MangaGenerator:
             
         return prompt
     
+    def optimize_panel_dimensions(self, width, height):
+        """
+        Optimizes panel dimensions to work well with the image generation model.
+        
+        Args:
+            width (int): Original panel width
+            height (int): Original panel height
+            
+        Returns:
+            tuple: (generation_width, generation_height, scale_factor)
+        """
+        # Maximum area the model can handle efficiently (512×512)
+        max_area = 512 * 512
+        
+        # Calculate aspect ratio
+        aspect_ratio = width / height
+        
+        # Calculate dimensions that fit within model constraints
+        if width * height > max_area:
+            # Scale down proportionally to fit max area
+            scale = (max_area / (width * height)) ** 0.5
+            gen_width = int(width * scale)
+            gen_height = int(height * scale)
+        else:
+            gen_width = width
+            gen_height = height
+        
+        # Ensure dimensions are multiples of 8 (for stable diffusion models)
+        gen_width = (gen_width // 8) * 8
+        gen_height = (gen_height // 8) * 8
+        
+        # Ensure minimum dimensions
+        gen_width = max(64, gen_width)
+        gen_height = max(64, gen_height)
+        
+        # Calculate how much we're scaling for later upscaling
+        scale_factor = (width / gen_width, height / gen_height)
+        
+        # Log the optimization for debugging
+        print(f"Panel optimization: {width}×{height} → {gen_width}×{gen_height}")
+        print(f"Aspect ratio maintained: {aspect_ratio:.3f} ≈ {gen_width/gen_height:.3f}")
+        
+        return gen_width, gen_height, scale_factor
+
+    def upscale_panel_image(self, image, original_width, original_height):
+        """
+        Upscales the generated panel image back to the original dimensions.
+        Uses pre-initialized upscaler if available.
+        
+        Args:
+            image (PIL.Image): Generated image at model dimensions
+            original_width (int): Original panel width
+            original_height (int): Original panel height
+            
+        Returns:
+            PIL.Image: Upscaled image at original dimensions
+        """
+        # If dimensions are already correct, no need to upscale
+        if image.width == original_width and image.height == original_height:
+            return image
+            
+        try:
+            # Use the pre-initialized upscaler if available
+            if self.has_upscaler and self.upsampler is not None:
+                # Convert PIL image to numpy array
+                img_array = np.array(image)
+                
+                # Process the image with RealESRGAN
+                upscaled, _ = self.upsampler.enhance(img_array)
+                upscaled_image = Image.fromarray(upscaled)
+                
+                # Resize to exact target dimensions
+                final_image = upscaled_image.resize((original_width, original_height), Image.LANCZOS)
+                print(f"Upscaled image from {image.width}x{image.height} to {final_image.width}x{final_image.height} using RealESRGAN")
+                return final_image
+                
+        except Exception as e:
+            print(f"Advanced upscaling failed: {e}. Falling back to standard resize.")
+        
+        # Fallback to standard PIL upscaling if RealESRGAN failed or isn't available
+        print(f"Using standard PIL resize from {image.width}x{image.height} to {original_width}x{original_height}")
+        return image.resize((original_width, original_height), Image.LANCZOS)
+    
     def prepare_ip_adapter_inputs(self, panel_data):
         """Prepare inputs for IPAdapter in the format expected by the model"""
         # Get characters in the panel
@@ -737,8 +859,20 @@ class MangaGenerator:
         # Always wrap in batch format for consistent API
         return [text_bboxes], [character_bboxes], [reference_embeddings]
 
-    def generate_panel(self, panel_data, panel_index, seed=None):
-        """Generate a manga panel based on panel data"""
+    def generate_panel(self, panel_data, panel_index, seed=None, width=None, height=None):
+        """
+        Generate a manga panel based on panel data with proper dimension handling.
+        
+        Args:
+            panel_data (dict): Panel data including characters, setting, etc.
+            panel_index (int): Index of the panel
+            seed (int, optional): Random seed for reproducibility
+            width (int, optional): Requested panel width from UI
+            height (int, optional): Requested panel height from UI
+        
+        Returns:
+            tuple: (output_path, panel_data) - Path to saved image and panel data
+        """
         # Create a specific prompt for this panel
         prompt = self.create_panel_prompt(panel_data)
         
@@ -753,7 +887,16 @@ class MangaGenerator:
         # Prepare inputs for IPAdapter
         text_bboxes, character_bboxes, reference_embeddings = self.prepare_ip_adapter_inputs(panel_data)
         
+        # Use provided dimensions or default to 512x512 if none specified
+        if width is None or height is None:
+            width = 512
+            height = 512
+        
+        # Optimize dimensions for the model
+        gen_width, gen_height, scale_factor = self.optimize_panel_dimensions(width, height)
+        
         print(f"Generating panel {panel_index}: {prompt[:100]}...")
+        print(f"Panel dimensions: {width}x{height} (requested), {gen_width}x{gen_height} (generation)")
         
         # Report what we're using
         char_count = len(character_bboxes[0]) if character_bboxes and character_bboxes[0] else 0
@@ -761,14 +904,14 @@ class MangaGenerator:
         print(f"Using {char_count} character references and {text_count} text boxes")
         
         try:
-            # Try to generate with higher resolution
+            # Generate image at optimized dimensions
             image = self.pipe(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 num_inference_steps=30,
                 guidance_scale=7.5,
-                width=512,
-                height=512,
+                width=gen_width,
+                height=gen_height,
                 generator=generator,
                 # Pass properly wrapped IPAdapter inputs
                 text_bboxes=text_bboxes,
@@ -776,24 +919,44 @@ class MangaGenerator:
                 reference_embeddings=reference_embeddings,
                 cfg_on_10_percent=False
             ).images[0]
+            
+            # Upscale to requested dimensions if necessary
+            if gen_width != width or gen_height != height:
+                image = self.upscale_panel_image(image, width, height)
+            
         except Exception as e:
             print(f"Error during generation: {e}")
             print("Trying with smaller resolution...")
             # Fallback to lower resolution
-            image = self.pipe(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                num_inference_steps=30,
-                guidance_scale=7.5,
-                width=384,
-                height=384,
-                generator=generator,
-                # Same inputs as above
-                text_bboxes=text_bboxes,
-                character_bboxes=character_bboxes,
-                reference_embeddings=reference_embeddings,
-                cfg_on_10_percent=False
-            ).images[0]
+            try:
+                # Use a more conservative resolution
+                gen_width = min(384, gen_width)
+                gen_height = min(384, gen_height)
+                
+                image = self.pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    width=gen_width,
+                    height=gen_height,
+                    generator=generator,
+                    # Same inputs as above
+                    text_bboxes=text_bboxes,
+                    character_bboxes=character_bboxes,
+                    reference_embeddings=reference_embeddings,
+                    cfg_on_10_percent=False
+                ).images[0]
+                
+                # Upscale to requested dimensions
+                image = self.upscale_panel_image(image, width, height)
+                
+            except Exception as e:
+                print(f"Error during fallback generation: {e}")
+                # Create a blank panel with error message as last resort
+                image = Image.new('RGB', (width, height), color='white')
+                draw = ImageDraw.Draw(image)
+                draw.text((width//2-100, height//2), "Generation error", fill='black')
         
         # Save the image
         output_path = self.panels_dir / f"panel_{panel_index:04d}.png"
@@ -807,6 +970,10 @@ class MangaGenerator:
             panel_data_json['characters'] = list(panel_data_json['characters'])
             panel_data_json['prompt'] = prompt
             panel_data_json['seed'] = seed
+            panel_data_json['width'] = width
+            panel_data_json['height'] = height
+            panel_data_json['gen_width'] = gen_width
+            panel_data_json['gen_height'] = gen_height
             characters = list(panel_data['characters'])
             panel_data_json['characters_with_embeddings'] = [
                 character for character in characters if self.get_character_embedding(character) is not None

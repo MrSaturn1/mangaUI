@@ -1,6 +1,7 @@
 # MangaUI
 
 MangaUI is a full-stack application for generating manga-style comics using the Drawatoon AI model.
+Made this to make my life easier generating a manga out of a screenplay I wrote, maybe this will be in shape at some point to help other people.
 
 ## Overview
 
