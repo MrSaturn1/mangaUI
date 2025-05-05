@@ -1,20 +1,19 @@
 # MangaUI
 
-MangaUI is a full-stack application for generating manga-style comics using the Drawatoon AI model.
+Full-stack UI for generating manga-style comics using the Drawatoon AI model locally.
 Made this to make my life easier generating a manga out of a screenplay I wrote, maybe this will be in shape at some point to help other people.
-Generation scripts are optimized for the M3 chip.
 
 ## Overview
 
 This project consists of:
 - **Frontend**: A Next.js application for editing manga panels and pages
-- **Backend**: A Flask API that interfaces with the Drawatoon model to generate manga-style images
+- **Backend**: A Flask API that interfaces with the Drawatoon model to generate manga-style images (instructions on downloading drawatoon below)
 
 ## Prerequisites
 
 - Node.js 18+ and npm/yarn
 - Python 3.8+
-- GPU with CUDA support (recommended for faster generation)
+- GPU with CUDA support (recommended for faster generation but I got this working on my M3 Max)
 
 ## Setup Instructions
 
@@ -61,7 +60,8 @@ npm install
 npm run dev
 ```
 
-The frontend development server will start at http://localhost:3000.
+The frontend development server will start at http://localhost:3000. Paste that into your browser and you're good to go.
+Sometimes there are CORS issues, for now I've found that opening a new private browsing instance and launching the frontend in there resolves it.
 
 ### Features
 
@@ -72,6 +72,7 @@ Scene generation with text prompts
 Page composition and export
 
 ### License
+
 MIT License
 
 ### Acknowledgements

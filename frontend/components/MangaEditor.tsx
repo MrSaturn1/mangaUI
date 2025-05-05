@@ -4,6 +4,25 @@ import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Line } from 'reac
 import { KonvaEventObject } from 'konva/lib/Node';
 import { saveAs } from 'file-saver';
 import { PageTemplate, pageTemplates } from '../utils/pageTemplates';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Plus, 
+  Save, 
+  FileDown, 
+  Grid, 
+  Folder, 
+  ZoomIn, 
+  ZoomOut, 
+  Maximize, 
+  Trash2,
+  SquarePen,
+  Download,
+  Layout,
+  Square,
+  MessageSquare
+} from 'lucide-react';
+
 
 interface Character {
   name: string;
@@ -1201,635 +1220,661 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
   };
   
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-6 gap-4 p-4">
-      {/* Canvas Area - Takes up 5/6 of the screen on large displays */}
-      <div className="lg:col-span-5 bg-white rounded-lg shadow-lg p-4 overflow-hidden">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">Page Editor</h2>
-          
-          <div className="flex space-x-2">
-            <button
-              className="px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-              onClick={handleAddPanel}
-            >
-              Add Panel
-            </button>
-            <button
-              className="px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700"
-              onClick={handleDeletePanel}
-              disabled={!selectedPanelId}
-            >
-              Delete Panel
-            </button>
-            <button
-              className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700"
-              onClick={handleSavePage}
-            >
-              Save Page
-            </button>
+    <div className="flex h-screen overflow-hidden">
+      {/* Left Sidebar - Vertical Toolbar */}
+      <div className="w-14 bg-gray-100 shadow-md flex flex-col items-center py-4 space-y-4">
+        <button
+          className="p-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+          onClick={handleAddPanel}
+          title="Add Panel"
+        >
+          <Plus size={20} />
+        </button>
+        
+        <button
+          className="p-2 bg-indigo-100 text-red-600 rounded-md hover:bg-indigo-200"
+          onClick={handleDeletePanel}
+          disabled={!selectedPanelId}
+          title="Delete Panel"
+        >
+          <Trash2 size={20} />
+        </button>
+        
+        <button
+          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
+          onClick={handleSavePage}
+          title="Save Page"
+        >
+          <Save size={20} />
+        </button>
+        
+        <button
+          className="p-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+          onClick={() => setShowTemplateDialog(true)}
+          title="Page Templates"
+        >
+          <Layout size={20} />
+        </button>
+        
+        <button
+          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
+          onClick={handleSaveSinglePage}
+          title="Export Current Page"
+        >
+          <Download size={20} />
+        </button>
+        
+        <button
+          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
+          onClick={handleSaveAllPages}
+          disabled={isSaving}
+          title="Export All Pages"
+        >
+          <FileDown size={20} />
+        </button>
+        
+        <button
+          onClick={() => setShowProjectManager(true)}
+          className="p-2 bg-indigo-100 text-blue-600 rounded-md hover:bg-indigo-200"
+          title="Project Manager"
+        >
+          <Folder size={20} />
+        </button>
+      </div>
+  
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Controls */}
+        <div className="bg-white shadow-sm p-2 flex items-center space-x-4">
+          {/* Page Navigation Controls */}
+          <div className="flex items-center space-x-1 border rounded-md px-1">
             <button
               onClick={handlePrevPage}
               disabled={currentPageIndex === 0}
-              className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800 disabled:text-gray-400"
+              className="p-1 rounded hover:bg-indigo-100 text-gray-800 disabled:text-gray-400"
+              title="Previous Page"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
+              <ChevronLeft size={18} />
             </button>
-            <span className="text-sm font-medium text-gray-800">
-              Page {currentPageIndex + 1} of {pages.length}
+            
+            <span className="text-sm font-medium text-gray-800 px-2">
+              {currentPageIndex + 1}/{pages.length}
             </span>
+            
             <button
               onClick={handleNextPage}
               disabled={currentPageIndex >= pages.length - 1}
-              className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800 disabled:text-gray-400"
+              className="p-1 rounded hover:bg-indigo-100 text-gray-800 disabled:text-gray-400"
+              title="Next Page"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-              </svg>
+              <ChevronRight size={18} />
             </button>
-            <button
-              onClick={handleAddPage}
-              className="px-2 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm ml-2"
-            >
-              Add Page
-            </button>
-            <button
-              className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700"
-              onClick={handleSaveSinglePage}
-            >
-              Save Current Page
-            </button>
-            <button
-              onClick={() => setShowTemplateDialog(true)}
-              className="px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-            >
-              Page Templates
-            </button>
-            <button
-              className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700"
-              onClick={handleSaveAllPages}
-              disabled={isSaving}
-            >
-              {isSaving ? 'Saving...' : 'Save All Pages'}
-            </button>
-            <button
-              onClick={() => setShowProjectManager(true)}
-              className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-4"
-            >
-              <span className="flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                </svg>
-                {currentProject ? 'Current Project' : 'Projects'}
-              </span>
-            </button>
-            <div className="flex items-center mb-4">
-              <label htmlFor="snapping-toggle" className="inline-flex items-center cursor-pointer">
-                <span className="mr-3 text-sm font-medium text-gray-900">Snapping</span>
-                <div className="relative">
-                  <input 
-                    id="snapping-toggle" 
-                    type="checkbox" 
-                    checked={isSnappingEnabled}
-                    onChange={(e) => setIsSnappingEnabled(e.target.checked)}
-                    className="sr-only peer" 
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </div>
-              </label>
-              <div className="flex items-center space-x-3">
-                <div className="bg-gray-100 rounded-lg flex items-center p-1">
-                  <button
-                    onClick={handleZoomOut}
-                    className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800"
-                    title="Zoom out"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={handleZoomReset}
-                    className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800 text-sm font-medium"
-                    title="Reset zoom"
-                  >
-                    {Math.round(scale * 100)}%
-                  </button>
-                  <button
-                    onClick={handleZoomIn}
-                    className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800"
-                    title="Zoom in"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
+          </div>
+          
+          <button
+            onClick={handleAddPage}
+            className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+            title="Add Page"
+          >
+            <div className="flex items-center">
+              <Plus size={16} className="mr-1" />
+              <span>Page</span>
             </div>
+          </button>
+          
+          {/* Snapping Toggle */}
+          <div className="flex items-center">
+            <label htmlFor="snapping-toggle" className="inline-flex items-center cursor-pointer">
+              <span className="mr-3 text-sm font-medium text-gray-900">Snapping</span>
+              <div className="relative">
+                <input 
+                  id="snapping-toggle" 
+                  type="checkbox" 
+                  checked={isSnappingEnabled}
+                  onChange={(e) => setIsSnappingEnabled(e.target.checked)}
+                  className="sr-only peer" 
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </div>
+            </label>
+          </div>
+          
+          {/* Zoom Controls */}
+          <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1 ml-auto">
+            <button
+              onClick={handleZoomOut}
+              className="p-1 rounded hover:bg-indigo-100 text-gray-800"
+              title="Zoom out"
+            >
+              <ZoomOut size={16} />
+            </button>
+            
+            <button
+              onClick={handleZoomReset}
+              className="px-2 py-1 rounded hover:bg-indigo-100 text-gray-800 text-sm font-medium"
+              title="Reset zoom"
+            >
+              {Math.round(scale * 100)}%
+            </button>
+            
+            <button
+              onClick={handleZoomIn}
+              className="p-1 rounded hover:bg-indigo-100 text-gray-800"
+              title="Zoom in"
+            >
+              <ZoomIn size={16} />
+            </button>
           </div>
         </div>
-        
-        <div className="relative mx-auto" style={{ width: `${pageSize.width * scale}px`, height: `${pageSize.height * scale}px` }}>
-          <Stage 
-            width={pageSize.width * scale} 
-            height={pageSize.height * scale}
-            ref={stageRef}
-            className="bg-gray-100 shadow-inner border border-gray-300"
-            onClick={handleBackgroundClick}
-            onMouseDown={handleStageMouseDown}
-            onMouseMove={handleStageMouseMove}
-            onMouseUp={handleStageMouseUp}
-          >
-            <Layer>
-              {/* Page background */}
-              <Rect
-                width={pageSize.width * scale}
+  
+        {/* Canvas and Panel Editor */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Canvas Area */}
+          <div className="flex-1 bg-white overflow-auto p-4 flex items-center justify-center">
+            <div className="relative" style={{ width: `${pageSize.width * scale}px`, height: `${pageSize.height * scale}px` }}>
+              <Stage 
+                width={pageSize.width * scale} 
                 height={pageSize.height * scale}
-                fill="white"
-              />
-              
-              {/* Panels */}
-              {panels.map((panel) => (
-                <Rect
-                  key={panel.id}
-                  id={panel.id}
-                  x={panel.x * scale}
-                  y={panel.y * scale}
-                  width={panel.width * scale}
-                  height={panel.height * scale}
-                  stroke={selectedPanelId === panel.id ? '#4299e1' : '#000'}
-                  strokeWidth={selectedPanelId === panel.id ? 2 : 1}
-                  fill={panel.imageData ? 'transparent' : '#f7fafc'}
-                  onClick={() => handlePanelSelect(panel.id)}
-                  onTap={() => handlePanelSelect(panel.id)}
-                  draggable
-                  onDragMove={handleDragMove}
-                  onDragEnd={handleDragEnd}
-                />
-              ))}
-
-              {panels.map(panel => (
-                <React.Fragment key={`boxes-${panel.id}`}>
-                  {/* Character boxes */}
-                  {panel.characterBoxes?.map((box, index) => (
-                    <Rect
-                      key={`char-box-${panel.id}-${index}`}
-                      x={(panel.x + box.x * panel.width) * scale}
-                      y={(panel.y + box.y * panel.height) * scale}
-                      width={box.width * panel.width * scale}
-                      height={box.height * panel.height * scale}
-                      stroke={box.color}
-                      strokeWidth={2}
-                      dash={[5, 5]}
-                      fill={box.color + '33'} // Add transparency
-                    />
-                  ))}
-                  
-                  {/* Text boxes */}
-                  {panel.textBoxes?.map((box, index) => (
-                    <Rect
-                      key={`text-box-${panel.id}-${index}`}
-                      x={(panel.x + box.x * panel.width) * scale}
-                      y={(panel.y + box.y * panel.height) * scale}
-                      width={box.width * panel.width * scale}
-                      height={box.height * panel.height * scale}
-                      stroke="#000000"
-                      strokeWidth={2}
-                      dash={[5, 5]}
-                      fill="#FFFFFF88" // Semi-transparent white
-                    />
-                  ))}
-                </React.Fragment>
-              ))}
-              
-              {/* Panel images */}
-              {panels.map((panel) => (
-                panel.imageData && (
-                  <KonvaImage
-                    key={`img-${panel.id}`}
-                    x={panel.x * scale}
-                    y={panel.y * scale}
-                    width={panel.width * scale}
-                    height={panel.height * scale}
-                    image={(() => {
-                      const img = new window.Image();
-                      img.src = panel.imageData;
-                      return img;
-                    })()}
-                    onClick={() => handlePanelSelect(panel.id)}
-                    onTap={() => handlePanelSelect(panel.id)}
-                  />
-                )
-              ))}
-              
-              {/* Transformer for resizing panels */}
-              <Transformer
-                ref={transformerRef}
-                boundBoxFunc={(oldBox, newBox) => {
-                  // Limit size to prevent tiny panels
-                  if (newBox.width < 20 || newBox.height < 20) {
-                    return oldBox;
-                  }
-                  return newBox;
-                }}
-                onTransformEnd={handleTransformEnd}
-                padding={5}
-                // Enable all anchors for full resizing control
-                enabledAnchors={[
-                  'top-left', 'top-center', 'top-right',
-                  'middle-left', 'middle-right',
-                  'bottom-left', 'bottom-center', 'bottom-right'
-                ]}
-                rotateEnabled={false}
-              />
-              {/* Guide lines */}
-              {showGuides && guides.x.map((x, i) => (
-                <Line 
-                  key={`x-${i}`}
-                  points={[x, 0, x, pageSize.height * scale]}
-                  stroke="#0066FF"
-                  strokeWidth={1}
-                  dash={[5, 5]}
-                />
-              ))}
-              {showGuides && guides.y.map((y, i) => (
-                <Line 
-                  key={`y-${i}`}
-                  points={[0, y, pageSize.width * scale, y]}
-                  stroke="#0066FF"
-                  strokeWidth={1}
-                  dash={[5, 5]}
-                />
-              ))}
-              {selectedPanel && (
-                <div className="mb-4">
-                  <h3 className="text-lg font-semibold mb-2">Box Drawing Tools</h3>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    <div className="flex flex-col">
-                      <button
-                        className={`px-3 py-1 rounded-md ${isDrawingCharacterBox ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}
-                        onClick={() => {
-                          setIsDrawingCharacterBox(!isDrawingCharacterBox);
-                          setIsDrawingTextBox(false);
-                        }}
-                      >
-                        Character Box
-                      </button>
-                      {isDrawingCharacterBox && (
-                        <select
-                          className="mt-2 px-2 py-1 border rounded"
-                          value={activeCharacter || ''}
-                          onChange={e => setActiveCharacter(e.target.value)}
-                        >
-                          <option value="">Select Character</option>
-                          {selectedPanel.characterNames.map(name => (
-                            <option key={name} value={name}>{name}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                    
-                    <button
-                      className={`px-3 py-1 rounded-md ${isDrawingTextBox ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}
-                      onClick={() => {
-                        setIsDrawingTextBox(!isDrawingTextBox);
-                        setIsDrawingCharacterBox(false);
-                      }}
-                    >
-                      Text Box
-                    </button>
-                  </div>
-                  
-                  {/* Display boxes for this panel */}
-                  {selectedPanel && selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 && (
-                    <div className="mt-3">
-                      <h4 className="font-medium text-sm mb-1">Character Boxes:</h4>
-                      <div className="max-h-32 overflow-y-auto">
-                        {selectedPanel.characterBoxes.map((box, idx) => (
-                          <div key={idx} className="flex items-center text-sm mb-1">
-                            <div className="w-3 h-3 mr-2" style={{backgroundColor: box.color}}></div>
-                            <span>{box.character}</span>
-                            <button
-                              className="ml-auto text-red-500 hover:text-red-700"
-                              onClick={() => {
-                                const updatedPanels = [...panels];
-                                const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                                if (panelIndex !== -1 && updatedPanels[panelIndex].characterBoxes) {
-                                  updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter((_, i) => i !== idx);
-                                  updatePanelsForCurrentPage(updatedPanels);
-                                }
-                              }}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedPanel && selectedPanel.textBoxes && selectedPanel.textBoxes.length > 0 && (
-                    <div className="mt-3">
-                      <h4 className="font-medium text-sm mb-1">Text Boxes:</h4>
-                      <div className="max-h-32 overflow-y-auto">
-                        {selectedPanel.textBoxes.map((box, idx) => (
-                          <div key={idx} className="flex items-center text-sm mb-1">
-                            <span>Text Box {idx + 1}</span>
-                            <button
-                              className="ml-auto text-red-500 hover:text-red-700"
-                              onClick={() => {
-                                const updatedPanels = [...panels];
-                                const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                                if (panelIndex !== -1 && updatedPanels[panelIndex].textBoxes) {
-                                  updatedPanels[panelIndex].textBoxes = updatedPanels[panelIndex].textBoxes.filter((_, i) => i !== idx);
-                                  updatePanelsForCurrentPage(updatedPanels);
-                                }
-                              }}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </Layer>
-          </Stage>
-          
-          {/* Loading overlay for panel generation */}
-          {panels.map(panel => (
-            panel.isGenerating && (
-              <div 
-                key={`overlay-${panel.id}`}
-                className="absolute bg-black bg-opacity-50 flex justify-center items-center"
-                style={{
-                  left: panel.x * scale,
-                  top: panel.y * scale,
-                  width: panel.width * scale,
-                  height: panel.height * scale
-                }}
+                ref={stageRef}
+                className="bg-gray-100 shadow-inner border border-gray-300"
+                onClick={handleBackgroundClick}
+                onMouseDown={handleStageMouseDown}
+                onMouseMove={handleStageMouseMove}
+                onMouseUp={handleStageMouseUp}
               >
-                <div className="text-white text-lg">
-                  {panel.generationQueued 
-                    ? `Queued: ${panel.queueMessage || 'Waiting...'}`
-                    : 'Generating...'}
-                </div>
-              </div>
-            )
-          ))}
-        </div>
-      </div>
-      
-      {/* Panel Editor Controls - Takes up 1/6 of the screen on large displays */}
-      <div className="lg:col-span-1 bg-white rounded-lg shadow-lg p-4" style={{ maxHeight: 'calc(100vh - 2rem)', overflow: 'auto', overflowX: 'hidden' }}>
-        {selectedPanel ? (
-          <div className="overflow-visible">
-            <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
-            
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Panel Settings</h3>
-                
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-black mb-1">Panel Index</label>
-                    <input
-                      type="number"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                      value={selectedPanel.panelIndex || 0}
-                      onChange={(e) => {
-                        const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                        if (panelIndex === -1) return;
-                        
-                        const updatedPanels = [...panels];
-                        updatedPanels[panelIndex].panelIndex = parseInt(e.target.value) || 0;
-                        
-                        updatePanelsForCurrentPage(updatedPanels);
-                      }}
-                    />
-                  </div>
+                <Layer>
+                  {/* Page background */}
+                  <Rect
+                    width={pageSize.width * scale}
+                    height={pageSize.height * scale}
+                    fill="white"
+                  />
                   
-                  <div>
-                    <label className="block text-sm font-medium text-black mb-1">Seed</label>
-                    <div className="flex space-x-2">
-                      <input
-                        type="number"
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        value={selectedPanel.seed || 0}
-                        onChange={(e) => {
-                          const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                          if (panelIndex === -1) return;
-                          
-                          const updatedPanels = [...panels];
-                          updatedPanels[panelIndex].seed = parseInt(e.target.value) || 0;
-                          
-                          updatePanelsForCurrentPage(updatedPanels);
-                        }}
+                  {/* Panels */}
+                  {panels.map((panel) => (
+                    <Rect
+                      key={panel.id}
+                      id={panel.id}
+                      x={panel.x * scale}
+                      y={panel.y * scale}
+                      width={panel.width * scale}
+                      height={panel.height * scale}
+                      stroke={selectedPanelId === panel.id ? '#4299e1' : '#000'}
+                      strokeWidth={selectedPanelId === panel.id ? 2 : 1}
+                      fill={panel.imageData ? 'transparent' : '#f7fafc'}
+                      onClick={() => handlePanelSelect(panel.id)}
+                      onTap={() => handlePanelSelect(panel.id)}
+                      draggable
+                      onDragMove={handleDragMove}
+                      onDragEnd={handleDragEnd}
+                    />
+                  ))}
+  
+                  {panels.map(panel => (
+                    <React.Fragment key={`boxes-${panel.id}`}>
+                      {/* Character boxes */}
+                      {panel.characterBoxes?.map((box, index) => (
+                        <Rect
+                          key={`char-box-${panel.id}-${index}`}
+                          x={(panel.x + box.x * panel.width) * scale}
+                          y={(panel.y + box.y * panel.height) * scale}
+                          width={box.width * panel.width * scale}
+                          height={box.height * panel.height * scale}
+                          stroke={box.color}
+                          strokeWidth={2}
+                          dash={[5, 5]}
+                          fill={box.color + '33'} // Add transparency
+                        />
+                      ))}
+                      
+                      {/* Text boxes */}
+                      {panel.textBoxes?.map((box, index) => (
+                        <Rect
+                          key={`text-box-${panel.id}-${index}`}
+                          x={(panel.x + box.x * panel.width) * scale}
+                          y={(panel.y + box.y * panel.height) * scale}
+                          width={box.width * panel.width * scale}
+                          height={box.height * panel.height * scale}
+                          stroke="#000000"
+                          strokeWidth={2}
+                          dash={[5, 5]}
+                          fill="#FFFFFF88" // Semi-transparent white
+                        />
+                      ))}
+                    </React.Fragment>
+                  ))}
+                  
+                  {/* Panel images */}
+                  {panels.map((panel) => (
+                    panel.imageData && (
+                      <KonvaImage
+                        key={`img-${panel.id}`}
+                        x={panel.x * scale}
+                        y={panel.y * scale}
+                        width={panel.width * scale}
+                        height={panel.height * scale}
+                        image={(() => {
+                          const img = new window.Image();
+                          img.src = panel.imageData;
+                          return img;
+                        })()}
+                        onClick={() => handlePanelSelect(panel.id)}
+                        onTap={() => handlePanelSelect(panel.id)}
                       />
-                      <button
-                        className="px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                        onClick={() => {
-                          const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                          if (panelIndex === -1) return;
-                          
-                          const updatedPanels = [...panels];
-                          updatedPanels[panelIndex].seed = Math.floor(Math.random() * 1000000);
-                          
-                          updatePanelsForCurrentPage(updatedPanels);
-                        }}
-                      >
-                        Random
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-black mb-1">Setting</label>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    value={selectedPanel.setting || ''}
-                    onChange={(e) => handleUpdateSetting(e.target.value)}
-                    placeholder="e.g., INT. HOTEL LOBBY - DAY, manga panel"
-                  />
-                </div>
-                
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-black mb-1">Custom Prompt (optional)</label>
-                  <textarea
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    value={selectedPanel.prompt || ''}
-                    onChange={(e) => handleUpdatePrompt(e.target.value)}
-                    placeholder="Leave blank to auto-generate from panel elements"
-                    rows={3}
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-lg font-semibold">Characters</h3>
-                  <select
-                    className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    value=""
-                    onChange={(e) => {
-                      const selectedChar = characters.find(c => c.name === e.target.value);
-                      if (selectedChar) {
-                        handleAddCharacter(selectedChar);
+                    )
+                  ))}
+                  
+                  {/* Transformer for resizing panels */}
+                  <Transformer
+                    ref={transformerRef}
+                    boundBoxFunc={(oldBox, newBox) => {
+                      // Limit size to prevent tiny panels
+                      if (newBox.width < 20 || newBox.height < 20) {
+                        return oldBox;
                       }
+                      return newBox;
+                    }}
+                    onTransformEnd={handleTransformEnd}
+                    padding={5}
+                    // Enable all anchors for full resizing control
+                    enabledAnchors={[
+                      'top-left', 'top-center', 'top-right',
+                      'middle-left', 'middle-right',
+                      'bottom-left', 'bottom-center', 'bottom-right'
+                    ]}
+                    rotateEnabled={false}
+                  />
+                  {/* Guide lines */}
+                  {showGuides && guides.x.map((x, i) => (
+                    <Line 
+                      key={`x-${i}`}
+                      points={[x, 0, x, pageSize.height * scale]}
+                      stroke="#0066FF"
+                      strokeWidth={1}
+                      dash={[5, 5]}
+                    />
+                  ))}
+                  {showGuides && guides.y.map((y, i) => (
+                    <Line 
+                      key={`y-${i}`}
+                      points={[0, y, pageSize.width * scale, y]}
+                      stroke="#0066FF"
+                      strokeWidth={1}
+                      dash={[5, 5]}
+                    />
+                  ))}
+                </Layer>
+              </Stage>
+  
+              {/* Loading overlay for panel generation */}
+              {panels.map(panel => (
+                panel.isGenerating && (
+                  <div 
+                    key={`overlay-${panel.id}`}
+                    className="absolute bg-black bg-opacity-50 flex justify-center items-center"
+                    style={{
+                      left: panel.x * scale,
+                      top: panel.y * scale,
+                      width: panel.width * scale,
+                      height: panel.height * scale
                     }}
                   >
-                    <option value="">Add Character...</option>
-                    {characters.map(char => (
-                      <option key={char.name} value={char.name}>{char.name}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {selectedPanel.characterNames.map((name, index) => (
-                    <div 
-                      key={`char-${index}`} 
-                      className="flex items-center bg-indigo-100 rounded-full px-3 py-1"
-                    >
-                      <span className="mr-2">{name}</span>
-                      <button 
-                        onClick={() => handleRemoveCharacter(index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        &times;
-                      </button>
+                    <div className="text-white text-lg">
+                      {panel.generationQueued 
+                        ? `Queued: ${panel.queueMessage || 'Waiting...'}`
+                        : 'Generating...'}
                     </div>
-                  ))}
-                  
-                  {selectedPanel.characterNames.length === 0 && (
-                    <div className="text-black italic">No characters added</div>
-                  )}
-                </div>
-              </div>
-              
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-lg font-semibold">Dialogues</h3>
-                  <button
-                    className="px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                    onClick={handleAddDialogue}
-                  >
-                    Add Dialogue
-                  </button>
-                </div>
-                
-                <div className="space-y-4">
-                  {selectedPanel.dialogues.map((dialogue, index) => (
-                    <div key={`dialogue-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
-                      <div className="mb-2">
-                        <label className="block text-sm font-medium text-black mb-1">Character</label>
-                        <select
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          value={dialogue.character}
-                          onChange={(e) => handleUpdateDialogue(index, 'character', e.target.value)}
-                        >
-                          <option value="">Select Character...</option>
-                          {selectedPanel.characterNames.map(name => (
-                            <option key={name} value={name}>{name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      <div className="mb-2">
-                        <label className="block text-sm font-medium text-black mb-1">Text</label>
-                        <textarea
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          value={dialogue.text}
-                          onChange={(e) => handleUpdateDialogue(index, 'text', e.target.value)}
-                          placeholder="What they say..."
-                          rows={2}
-                        />
-                      </div>
-                      
-                      <button
-                        onClick={() => handleRemoveDialogue(index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                  
-                  {selectedPanel.dialogues.length === 0 && (
-                    <div className="text-black italic">No dialogues added</div>
-                  )}
-                </div>
-              </div>
-              
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-lg font-semibold">Actions</h3>
-                  <button
-                    className="px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                    onClick={handleAddAction}
-                  >
-                    Add Action
-                  </button>
-                </div>
-                
-                <div className="space-y-4">
-                  {selectedPanel.actions.map((action, index) => (
-                    <div key={`action-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
-                      <div className="mb-2">
-                        <label className="block text-sm font-medium text-black mb-1">Text</label>
-                        <textarea
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          value={action.text}
-                          onChange={(e) => handleUpdateAction(index, e.target.value)}
-                          placeholder="Describe the action..."
-                          rows={2}
-                        />
-                      </div>
-                      
-                      <button
-                        onClick={() => handleRemoveAction(index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                  
-                  {selectedPanel.actions.length === 0 && (
-                    <div className="text-black italic">No actions added</div>
-                  )}
-                </div>
-              </div>
-              
-              <button
-                className="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
-                onClick={handleGeneratePanel}
-                disabled={selectedPanel.isGenerating}
-              >
-                {selectedPanel.isGenerating 
-                  ? 'Generating...' 
-                  : selectedPanel.imageData 
-                    ? 'Regenerate Panel' 
-                    : 'Generate Panel'}
-              </button>
+                  </div>
+                )
+              ))}
             </div>
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-black">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <p>Select a panel to edit</p>
+  
+          {/* Panel Editor - Increased width */}
+          <div className="w-96 bg-white border-l border-gray-200 overflow-y-auto" style={{ maxHeight: '100vh' }}>
+            {selectedPanel ? (
+              <div className="p-4">
+                <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
+                
+                <div className="space-y-6">
+                  {/* Box Drawing Tools - Moved from below canvas to Panel Editor */}
+                  <div className="pb-4 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold mb-2">Box Drawing Tools</h3>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      <div className="flex flex-col">
+                        <button
+                          className={`px-3 py-2 rounded-md flex items-center ${isDrawingCharacterBox ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
+                          onClick={() => {
+                            setIsDrawingCharacterBox(!isDrawingCharacterBox);
+                            setIsDrawingTextBox(false);
+                          }}
+                        >
+                          <Square size={16} className="mr-2" />
+                          Character Box
+                        </button>
+                        {isDrawingCharacterBox && (
+                          <select
+                            className="mt-2 px-2 py-1 border rounded"
+                            value={activeCharacter || ''}
+                            onChange={e => setActiveCharacter(e.target.value)}
+                          >
+                            <option value="">Select Character</option>
+                            {selectedPanel.characterNames.map(name => (
+                              <option key={name} value={name}>{name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                      
+                      <button
+                        className={`px-3 py-2 rounded-md flex items-center ${isDrawingTextBox ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
+                        onClick={() => {
+                          setIsDrawingTextBox(!isDrawingTextBox);
+                          setIsDrawingCharacterBox(false);
+                        }}
+                      >
+                        <MessageSquare size={16} className="mr-2" />
+                        Text Box
+                      </button>
+                    </div>
+                    
+                    {/* Display boxes for this panel */}
+                    {selectedPanel && selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 && (
+                      <div className="mt-3">
+                        <h4 className="font-medium text-sm mb-1">Character Boxes:</h4>
+                        <div className="max-h-32 overflow-y-auto">
+                          {selectedPanel.characterBoxes.map((box, idx) => (
+                            <div key={idx} className="flex items-center text-sm mb-1">
+                              <div className="w-3 h-3 mr-2" style={{backgroundColor: box.color}}></div>
+                              <span>{box.character}</span>
+                              <button
+                                className="ml-auto text-red-500 hover:text-red-700"
+                                onClick={() => {
+                                  const updatedPanels = [...panels];
+                                  const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                                  if (panelIndex !== -1 && updatedPanels[panelIndex].characterBoxes) {
+                                    updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter((_, i) => i !== idx);
+                                    updatePanelsForCurrentPage(updatedPanels);
+                                  }
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+  
+                    {selectedPanel && selectedPanel.textBoxes && selectedPanel.textBoxes.length > 0 && (
+                      <div className="mt-3">
+                        <h4 className="font-medium text-sm mb-1">Text Boxes:</h4>
+                        <div className="max-h-32 overflow-y-auto">
+                          {selectedPanel.textBoxes.map((box, idx) => (
+                            <div key={idx} className="flex items-center text-sm mb-1">
+                              <span>Text Box {idx + 1}</span>
+                              <button
+                                className="ml-auto text-red-500 hover:text-red-700"
+                                onClick={() => {
+                                  const updatedPanels = [...panels];
+                                  const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                                  if (panelIndex !== -1 && updatedPanels[panelIndex].textBoxes) {
+                                    updatedPanels[panelIndex].textBoxes = updatedPanels[panelIndex].textBoxes.filter((_, i) => i !== idx);
+                                    updatePanelsForCurrentPage(updatedPanels);
+                                  }
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+  
+                  <div className="pb-4 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold mb-2">Panel Settings</h3>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-sm font-medium text-black mb-1">Panel Index</label>
+                        <input
+                          type="number"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          value={selectedPanel.panelIndex || 0}
+                          onChange={(e) => {
+                            const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                            if (panelIndex === -1) return;
+                            
+                            const updatedPanels = [...panels];
+                            updatedPanels[panelIndex].panelIndex = parseInt(e.target.value) || 0;
+                            
+                            updatePanelsForCurrentPage(updatedPanels);
+                          }}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-black mb-1">Seed</label>
+                        <div className="flex space-x-2">
+                          <input
+                            type="number"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            value={selectedPanel.seed || 0}
+                            onChange={(e) => {
+                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                              if (panelIndex === -1) return;
+                              
+                              const updatedPanels = [...panels];
+                              updatedPanels[panelIndex].seed = parseInt(e.target.value) || 0;
+                              
+                              updatePanelsForCurrentPage(updatedPanels);
+                            }}
+                          />
+                          <button
+                            className="px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            onClick={() => {
+                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                              if (panelIndex === -1) return;
+                              
+                              const updatedPanels = [...panels];
+                              updatedPanels[panelIndex].seed = Math.floor(Math.random() * 1000000);
+                              
+                              updatePanelsForCurrentPage(updatedPanels);
+                            }}
+                          >
+                            Random
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-black mb-1">Setting</label>
+                      <input
+                        type="text"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        value={selectedPanel.setting || ''}
+                        onChange={(e) => handleUpdateSetting(e.target.value)}
+                        placeholder="e.g., INT. HOTEL LOBBY - DAY, manga panel"
+                      />
+                    </div>
+                    
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-black mb-1">Custom Prompt (optional)</label>
+                      <textarea
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        value={selectedPanel.prompt || ''}
+                        onChange={(e) => handleUpdatePrompt(e.target.value)}
+                        placeholder="Leave blank to auto-generate from panel elements"
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="pb-4 border-b border-gray-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-semibold">Characters</h3>
+                      <select
+                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        value=""
+                        onChange={(e) => {
+                          const selectedChar = characters.find(c => c.name === e.target.value);
+                          if (selectedChar) {
+                            handleAddCharacter(selectedChar);
+                          }
+                        }}
+                      >
+                        <option value="">Add Character...</option>
+                        {characters.map(char => (
+                          <option key={char.name} value={char.name}>{char.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {selectedPanel.characterNames.map((name, index) => (
+                        <div 
+                          key={`char-${index}`} 
+                          className="flex items-center bg-indigo-100 rounded-full px-3 py-1"
+                        >
+                          <span className="mr-2">{name}</span>
+                          <button 
+                            onClick={() => handleRemoveCharacter(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                      
+                      {selectedPanel.characterNames.length === 0 && (
+                        <div className="text-black italic">No characters added</div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="pb-4 border-b border-gray-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-semibold">Dialogues</h3>
+                      <button
+                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+                        onClick={handleAddDialogue}
+                      >
+                        Add Dialogue
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {selectedPanel.dialogues.map((dialogue, index) => (
+                        <div key={`dialogue-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
+                          <div className="mb-2">
+                            <label className="block text-sm font-medium text-black mb-1">Character</label>
+                            <select
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              value={dialogue.character}
+                              onChange={(e) => handleUpdateDialogue(index, 'character', e.target.value)}
+                            >
+                              <option value="">Select Character...</option>
+                              {selectedPanel.characterNames.map(name => (
+                                <option key={name} value={name}>{name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          <div className="mb-2">
+                            <label className="block text-sm font-medium text-black mb-1">Text</label>
+                            <textarea
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              value={dialogue.text}
+                              onChange={(e) => handleUpdateDialogue(index, 'text', e.target.value)}
+                              placeholder="What they say..."
+                              rows={2}
+                            />
+                          </div>
+                          
+                          <button
+                            onClick={() => handleRemoveDialogue(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      
+                      {selectedPanel.dialogues.length === 0 && (
+                        <div className="text-black italic">No dialogues added</div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="pb-4 border-b border-gray-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-semibold">Actions</h3>
+                      <button
+                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+                        onClick={handleAddAction}
+                      >
+                        Add Action
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {selectedPanel.actions.map((action, index) => (
+                        <div key={`action-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
+                          <div className="mb-2">
+                            <label className="block text-sm font-medium text-black mb-1">Text</label>
+                            <textarea
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              value={action.text}
+                              onChange={(e) => handleUpdateAction(index, e.target.value)}
+                              placeholder="Describe the action..."
+                              rows={2}
+                            />
+                          </div>
+                          
+                          <button
+                            onClick={() => handleRemoveAction(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      
+                      {selectedPanel.actions.length === 0 && (
+                        <div className="text-black italic">No actions added</div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <button
+                    className="w-full px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
+                    onClick={handleGeneratePanel}
+                    disabled={selectedPanel.isGenerating}
+                  >
+                    {selectedPanel.isGenerating 
+                      ? 'Generating...' 
+                      : selectedPanel.imageData 
+                        ? 'Regenerate Panel' 
+                        : 'Generate Panel'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-64 text-black p-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <p>Select a panel to edit</p>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
-      {/* Template Dialog */}
+  
+      {/* Template Dialog Modal */}
       {showTemplateDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 max-h-[90vh] overflow-auto">
@@ -1849,7 +1894,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
               {pageTemplates.map(template => (
                 <div 
                   key={template.id}
-                  className="border rounded-lg p-4 cursor-pointer hover:bg-blue-50"
+                  className="border rounded-lg p-4 cursor-pointer hover:bg-indigo-50"
                   onClick={() => applyPageTemplate(template.id)}
                 >
                   <h4 className="font-bold mb-1">{template.name}</h4>

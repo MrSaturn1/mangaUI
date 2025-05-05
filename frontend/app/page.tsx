@@ -160,32 +160,22 @@ export default function Home() {
     }, 2000);
   };
 
-  {/* const handleSelectProject = (project, projectPages) => {
-    setCurrentProject(project);
-    setPages(projectPages);
-    setShowProjectManager(false);
-  };
-  
-  // Add a handler for project saving
-  const handleSaveProject = (projectId, pagesToSave) => {
-    // ProjectManager will handle the actual saving
-    console.log(`Saving project ${projectId} with ${pagesToSave.length} pages`);
-  }; */}
-
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Always show the editor */}
       {showInitializeDialog ? (
-        <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
+        <div className="max-w-md mx-auto bg-white rounded-lg shadow-lg p-6 my-10">
           <h2 className="text-2xl font-bold mb-4 text-center text-red-600">Model Configuration</h2>
           <p className="mb-4">Initialize models to start generating manga panels</p>
           <InitializeModels onInitialized={handleInitialized} />
         </div>
       ) : (
-        <MangaEditor 
-          characters={characters} 
-          apiEndpoint="http://localhost:5000/api"
-        />
+        <div className="flex-1 overflow-hidden">
+          <MangaEditor 
+            characters={characters} 
+            apiEndpoint="http://localhost:5000/api"
+          />
+        </div>
       )}
 
       {/* Show floating status indicator while initializing or on error */}
