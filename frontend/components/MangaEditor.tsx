@@ -2,6 +2,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Line } from 'react-konva';
 import { KonvaEventObject } from 'konva/lib/Node';
+import { saveAs } from 'file-saver';
+import { PageTemplate, pageTemplates } from '../utils/pageTemplates';
 
 interface Character {
   name: string;
@@ -26,7 +28,7 @@ interface Position {
   height: number;
 }
 
-interface Panel {
+export interface Panel {
   id: string;
   x: number;
   y: number;
@@ -45,21 +47,48 @@ interface Panel {
   isGenerating?: boolean;
   generationQueued?: boolean;
   queueMessage?: string;
+  characterBoxes?: {
+    character: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    color: string; // For different colors per character
+  }[];
+  textBoxes?: {
+    text: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[];
+}
+
+interface Page {
+  id: string;
+  panels: Panel[]; // This explicitly tells TypeScript that panels is an array of Panel
 }
 
 interface MangaEditorProps {
   characters: Character[];
   apiEndpoint?: string; // Base API endpoint URL
+  currentProject?: any;
+  setCurrentProject?: (project: any) => void;
+  onProjectSave?: (projectId: string, pages: Page[]) => void;
 }
 
-const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'http://localhost:5000/api' }) => {
+const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'http://localhost:5000/api', currentProject, setCurrentProject, onProjectSave }) => {
   // Page state
   const [pageSize, setPageSize] = useState({ width: 1500, height: 2250 }); // A4 proportions
   const [pageIndex, setPageIndex] = useState<number>(0);
   const [scale, setScale] = useState<number>(0.3); // Scale for the canvas
+  const [pages, setPages] = useState([{ id: 'page-1', panels: [] as Panel[] }]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [showTemplateDialog, setShowTemplateDialog] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   
   // Panels state
-  const [panels, setPanels] = useState<Panel[]>([]);
+  const panels: Panel[] = pages[currentPageIndex]?.panels || [];
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
   // State for tracking queued panel requests
   const [queuedPanelRequests, setQueuedPanelRequests] = useState<{[key: string]: {
@@ -67,13 +96,22 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     requestId: string;
     checkInterval: NodeJS.Timeout | null;
   }}>({});
-  
+
+  // Character and Text Boxes
+  const [isDrawingCharacterBox, setIsDrawingCharacterBox] = useState<boolean>(false);
+  const [isDrawingTextBox, setIsDrawingTextBox] = useState<boolean>(false);
+  const [activeCharacter, setActiveCharacter] = useState<string | null>(null);
+  const [drawingStartPos, setDrawingStartPos] = useState<{x: number, y: number} | null>(null);
+
   // Refs
   const stageRef = useRef<any>(null);
   const transformerRef = useRef<any>(null);
   
   // Get the selected panel
   const selectedPanel = panels.find(p => p.id === selectedPanelId);
+
+  // Project Management
+  const [showProjectManager, setShowProjectManager] = useState<boolean>(false);
 
   // Helper lines and snapping
   const [guides, setGuides] = useState<{x: number[], y: number[]}>({x: [], y: []});
@@ -83,39 +121,14 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
   
   // Effect to add some default panels on first load
   useEffect(() => {
-    if (panels.length === 0) {
-      // Create 6 panels in a 3x2 grid with gaps
-      const gap = 20; // Gap between panels in page units
-      const cols = 3;
-      const rows = 2;
-      
-      // Calculate panel dimensions with gaps
-      const panelWidth = (pageSize.width - (gap * (cols + 1))) / cols;
-      const panelHeight = (pageSize.height - (gap * (rows + 1))) / rows;
-      
-      const defaultPanels: Panel[] = [];
-      
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          defaultPanels.push({
-            id: `panel-${row * cols + col}`,
-            x: gap + col * (panelWidth + gap),
-            y: gap + row * (panelHeight + gap),
-            width: panelWidth,
-            height: panelHeight,
-            characterNames: [],
-            characterPositions: [],
-            dialogues: [],
-            dialoguePositions: [],
-            actions: [],
-            panelIndex: row * cols + col
-          });
-        }
-      }
-      
-      setPanels(defaultPanels);
+    // Check if the current page has no panels
+    if (pages[currentPageIndex]?.panels.length === 0) {
+      const defaultPanels = createDefaultPanelsForPage();
+      const updatedPages = [...pages];
+      updatedPages[currentPageIndex].panels = defaultPanels;
+      setPages(updatedPages);
     }
-  }, []);
+  }, [currentPageIndex, pages]);
   
   // Effect to update the transformer when a panel is selected
   useEffect(() => {
@@ -131,6 +144,35 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       transformerRef.current.getLayer().batchDraw();
     }
   }, [selectedPanelId]);
+
+  {/* useEffect(() => {
+    if (currentProject && currentProject.characters) {
+      // This assumes your character list is passed in as props
+      const projectCharacters = characters.filter(
+        character => currentProject.characters.includes(character.name)
+      );
+      
+    }
+  }, [currentProject]);
+
+  const handleProjectSelect = (project) => {
+    setCurrentProject(project);
+    
+    // If the project has pages, load them
+    if (project.pages && project.pages.length > 0) {
+      setPages(project.pages);
+    } else {
+      // Otherwise create a default page
+      setPages([
+        {
+          id: `page-${uuidv4()}`,
+          panels: createDefaultPanelsForPage()
+        }
+      ]);
+    }
+    
+    setShowProjectManager(false);
+  }; */}
 
   // Clean up intervals on unmount
   useEffect(() => {
@@ -148,6 +190,17 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
   const handlePanelSelect = (panelId: string) => {
     setSelectedPanelId(panelId);
   };
+
+  const updatePanelsForCurrentPage = (newPanels: Panel[]) => {
+    const updatedPages = [...pages];
+    updatedPages[currentPageIndex] = {
+      ...updatedPages[currentPageIndex],
+      panels: newPanels
+    };
+    setPages(updatedPages);
+  };
+
+  
   
   // Handler for adding a new panel
   const handleAddPanel = () => {
@@ -166,7 +219,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       panelIndex: panels.length
     };
     
-    setPanels([...panels, newPanel]);
+    updatePanelsForCurrentPage([...panels, newPanel]);
     setSelectedPanelId(newPanel.id);
   };
   
@@ -174,7 +227,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
   const handleDeletePanel = () => {
     if (!selectedPanelId) return;
     
-    setPanels(panels.filter(p => p.id !== selectedPanelId));
+    updatePanelsForCurrentPage(panels.filter(p => p.id !== selectedPanelId));
     setSelectedPanelId(null);
   };
   
@@ -190,11 +243,71 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     if (panelIndex === -1) return;
     
     // Calculate actual dimensions (accounting for scale)
-    // This is the key fix - convert from canvas coordinates to model coordinates
-    const actualX = node.x() / scale;
-    const actualY = node.y() / scale;
-    const actualWidth = (node.width() * node.scaleX()) / scale;
-    const actualHeight = (node.height() * node.scaleY()) / scale;
+    let actualX = node.x() / scale;
+    let actualY = node.y() / scale;
+    let actualWidth = (node.width() * node.scaleX()) / scale;
+    let actualHeight = (node.height() * node.scaleY()) / scale;
+    
+    // Apply snapping if enabled
+    if (isSnappingEnabled) {
+      // Generate guides for panels and page edges (similar to handleDragMove)
+      const xGuides: number[] = [];
+      const yGuides: number[] = [];
+      
+      // Add guides for each panel edge and centers
+      panels.forEach(panel => {
+        if (panel.id !== selectedPanelId) {
+          // Panel edges
+          const panelLeft = panel.x;
+          const panelRight = panel.x + panel.width;
+          const panelTop = panel.y;
+          const panelBottom = panel.y + panel.height;
+          const panelCenterX = panel.x + panel.width / 2;
+          const panelCenterY = panel.y + panel.height / 2;
+          
+          // Edge guides
+          xGuides.push(panelLeft);           // Left edge
+          xGuides.push(panelRight);          // Right edge
+          xGuides.push(panelCenterX);        // Center X
+          
+          yGuides.push(panelTop);            // Top edge
+          yGuides.push(panelBottom);         // Bottom edge
+          yGuides.push(panelCenterY);        // Center Y
+        }
+      });
+      
+      // Add page boundary guides
+      xGuides.push(0);                       // Left page edge
+      xGuides.push(pageSize.width);          // Right page edge
+      xGuides.push(pageSize.width / 2);      // Page center X
+      
+      yGuides.push(0);                       // Top page edge
+      yGuides.push(pageSize.height);         // Bottom page edge
+      yGuides.push(pageSize.height / 2);     // Page center Y
+      
+      // Find snap positions
+      const snapX = getSnapPosition(actualX, xGuides);
+      const snapRight = getSnapPosition(actualX + actualWidth, xGuides);
+      const snapY = getSnapPosition(actualY, yGuides);
+      const snapBottom = getSnapPosition(actualY + actualHeight, yGuides);
+      
+      // Apply snapping
+      if (snapX !== null) {
+        actualX = snapX;
+      }
+      
+      if (snapRight !== null) {
+        actualWidth = snapRight - actualX;
+      }
+      
+      if (snapY !== null) {
+        actualY = snapY;
+      }
+      
+      if (snapBottom !== null) {
+        actualHeight = snapBottom - actualY;
+      }
+    }
     
     // Update the panel with new dimensions
     const updatedPanels = [...panels];
@@ -210,7 +323,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     node.scaleX(1);
     node.scaleY(1);
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Helper function to find the closest guide
@@ -338,7 +451,20 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       y: node.y() / scale
     };
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
+  };
+
+  // Zoom control functions
+  const handleZoomIn = () => {
+    setScale(prevScale => Math.min(prevScale + 0.1, 1.0));
+  };
+
+  const handleZoomOut = () => {
+    setScale(prevScale => Math.max(prevScale - 0.1, 0.1));
+  };
+
+  const handleZoomReset = () => {
+    setScale(0.3); // Reset to default
   };
   
   // Handler for adding a character to the selected panel
@@ -375,7 +501,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     updatedPanels[panelIndex].characterNames.push(character.name);
     updatedPanels[panelIndex].characterPositions.push(defaultPosition);
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for removing a character from the selected panel
@@ -390,7 +516,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     updatedPanels[panelIndex].characterNames.splice(index, 1);
     updatedPanels[panelIndex].characterPositions.splice(index, 1);
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for adding dialogue to the selected panel
@@ -422,7 +548,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     updatedPanels[panelIndex].dialogues.push({ character: '', text: '' });
     updatedPanels[panelIndex].dialoguePositions.push(defaultPosition);
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for updating dialogue in the selected panel
@@ -436,7 +562,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].dialogues[index][field] = value;
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for removing dialogue from the selected panel
@@ -451,7 +577,128 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     updatedPanels[panelIndex].dialogues.splice(index, 1);
     updatedPanels[panelIndex].dialoguePositions.splice(index, 1);
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
+  };
+
+  // Add mouse handlers for drawing
+  const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+    // If clicking directly on the stage (background), deselect current panel
+    if (e.target === e.currentTarget) {
+      setSelectedPanelId(null);
+      return;
+    }
+    
+    if (!selectedPanelId || (!isDrawingCharacterBox && !isDrawingTextBox)) return;
+    
+    // Get pointer position relative to the stage
+    const pos = e.target.getStage()?.getPointerPosition();
+    if (!pos) return;
+    
+    // Find the selected panel
+    const panel = panels.find(p => p.id === selectedPanelId);
+    if (!panel) return;
+    
+    // Check if click is inside the selected panel
+    const panelX = panel.x * scale;
+    const panelY = panel.y * scale;
+    const panelWidth = panel.width * scale;
+    const panelHeight = panel.height * scale;
+    
+    if (
+      pos.x >= panelX && 
+      pos.x <= panelX + panelWidth && 
+      pos.y >= panelY && 
+      pos.y <= panelY + panelHeight
+    ) {
+      // Convert from canvas coordinates to panel-relative coordinates (0-1)
+      const relativeX = (pos.x - panelX) / panelWidth;
+      const relativeY = (pos.y - panelY) / panelHeight;
+      
+      // Store starting position
+      setDrawingStartPos({ x: relativeX, y: relativeY });
+    }
+  };
+
+  const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
+    // Preview logic can be added here
+  };
+
+  const handleStageMouseUp = (e: KonvaEventObject<MouseEvent>) => {
+    if (!selectedPanelId || !drawingStartPos || (!isDrawingCharacterBox && !isDrawingTextBox)) return;
+    
+    const pos = e.target.getStage()?.getPointerPosition();
+    if (!pos) return;
+    
+    // Find the selected panel
+    const panel = panels.find(p => p.id === selectedPanelId);
+    if (!panel) return;
+    
+    // Check if mouse up is inside the panel
+    const panelX = panel.x * scale;
+    const panelY = panel.y * scale;
+    const panelWidth = panel.width * scale;
+    const panelHeight = panel.height * scale;
+    
+    if (
+      pos.x >= panelX && 
+      pos.x <= panelX + panelWidth && 
+      pos.y >= panelY && 
+      pos.y <= panelY + panelHeight
+    ) {
+      // Convert to panel-relative coordinates (0-1)
+      const relativeX = (pos.x - panelX) / panelWidth;
+      const relativeY = (pos.y - panelY) / panelHeight;
+      
+      // Calculate width and height
+      const width = Math.abs(relativeX - drawingStartPos.x);
+      const height = Math.abs(relativeY - drawingStartPos.y);
+      
+      // Calculate top-left corner
+      const x = Math.min(drawingStartPos.x, relativeX);
+      const y = Math.min(drawingStartPos.y, relativeY);
+      
+      // Minimum size check
+      if (width < 0.05 || height < 0.05) {
+        setDrawingStartPos(null);
+        return;
+      }
+      
+      // Find the panel index
+      const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+      if (panelIndex === -1) return;
+      
+      const updatedPanels = [...panels];
+      
+      if (isDrawingCharacterBox && activeCharacter) {
+        // Get a color based on the character name (for consistency)
+        const characterColors = [
+          '#FF5733', '#33FF57', '#3357FF', '#FF33F5', '#F5FF33', 
+          '#33FFF5', '#F533FF', '#FF3333', '#33FF33', '#3333FF'
+        ];
+        const colorIndex = activeCharacter.charCodeAt(0) % characterColors.length;
+        
+        // Add the character box
+        const characterBoxes = [...(updatedPanels[panelIndex].characterBoxes || [])];
+        characterBoxes.push({
+          character: activeCharacter,
+          x, y, width, height,
+          color: characterColors[colorIndex]
+        });
+        updatedPanels[panelIndex].characterBoxes = characterBoxes;
+      } else if (isDrawingTextBox) {
+        // Add the text box
+        const textBoxes = [...(updatedPanels[panelIndex].textBoxes || [])];
+        textBoxes.push({
+          text: '',
+          x, y, width, height
+        });
+        updatedPanels[panelIndex].textBoxes = textBoxes;
+      }
+      
+      updatePanelsForCurrentPage(updatedPanels);
+    }
+    
+    setDrawingStartPos(null);
   };
   
   // Handler for adding an action to the selected panel
@@ -465,7 +712,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].actions.push({ text: '' });
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for updating an action in the selected panel
@@ -479,7 +726,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].actions[index].text = value;
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for removing an action from the selected panel
@@ -493,7 +740,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].actions.splice(index, 1);
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for updating the setting of the selected panel
@@ -507,7 +754,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].setting = value;
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for updating the prompt of the selected panel
@@ -521,7 +768,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].prompt = value;
     
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for generating a panel image
@@ -534,7 +781,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     // Mark the panel as generating
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].isGenerating = true;
-    setPanels(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels);
     
     try {
       // Prepare the data for the API
@@ -552,6 +799,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
         characterNames: panel.characterNames,
         dialogues: panel.dialogues,
         actions: panel.actions,
+        characterBoxes: panel.characterBoxes || [], // Include character boxes
+        textBoxes: panel.textBoxes || [],  
         panelIndex: panel.panelIndex || 0,
         seed: panel.seed || Math.floor(Math.random() * 1000000),
         width: pixelWidth,
@@ -601,7 +850,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
           queueMessage: data.message
         };
         
-        setPanels(newPanels);
+        updatePanelsForCurrentPage(newPanels);
         
       } else if (data.status === 'success') {
         // Handle immediate success (models were already initialized)
@@ -614,7 +863,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
         // Mark the panel as not generating
         const newPanels = [...panels];
         newPanels[panelIndex].isGenerating = false;
-        setPanels(newPanels);
+        updatePanelsForCurrentPage(newPanels);
       }
     } catch (error) {
       console.error('Error calling API:', error);
@@ -623,7 +872,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       // Mark the panel as not generating
       const newPanels = [...panels];
       newPanels[panelIndex].isGenerating = false;
-      setPanels(newPanels);
+      updatePanelsForCurrentPage(newPanels);
     }
   };
 
@@ -660,7 +909,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
           const newPanels = [...panels];
           newPanels[panelIndex].isGenerating = false;
           newPanels[panelIndex].generationQueued = false;
-          setPanels(newPanels);
+          updatePanelsForCurrentPage(newPanels);
         }
         
         // Clean up the interval
@@ -698,13 +947,257 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       seed: data.seed // Store the used seed
     };
     
-    setPanels(newPanels);
+    updatePanelsForCurrentPage(newPanels);
   };
   
   // Handler for saving the page
   const handleSavePage = async () => {
     // TODO: Implement page saving
     alert('Page saving not implemented yet');
+  };
+
+  // Page navigation functions
+  const handlePrevPage = () => {
+    if (currentPageIndex > 0) {
+      setSelectedPanelId(null); // Clear selection when switching pages
+      setCurrentPageIndex(currentPageIndex - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPageIndex < pages.length - 1) {
+      setSelectedPanelId(null); // Clear selection when switching pages
+      setCurrentPageIndex(currentPageIndex + 1);
+    }
+  };
+
+  // Add this function to create default panels for a new page
+  const createDefaultPanelsForPage = () => {
+    const gap = 20;
+    const cols = 2;
+    const rows = 3;
+    
+    const panelWidth = (pageSize.width - (gap * (cols + 1))) / cols;
+    const panelHeight = (pageSize.height - (gap * (rows + 1))) / rows;
+    
+    const defaultPanels = [];
+    
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        defaultPanels.push({
+          id: `panel-page-${pages.length}-${row * cols + col}`,
+          x: gap + col * (panelWidth + gap),
+          y: gap + row * (panelHeight + gap),
+          width: panelWidth,
+          height: panelHeight,
+          characterNames: [],
+          characterPositions: [],
+          dialogues: [],
+          dialoguePositions: [],
+          actions: [],
+          panelIndex: row * cols + col,
+          characterBoxes: [], // Add this for character boxes
+          textBoxes: []  
+        });
+      }
+    }
+    
+    return defaultPanels;
+  };
+
+
+  const handleAddPage = () => {
+    const newPageIndex = pages.length;
+    const newPage = {
+      id: `page-${newPageIndex + 1}`,
+      panels: createDefaultPanelsForPage()
+    };
+    
+    setPages([...pages, newPage]);
+    setCurrentPageIndex(newPageIndex);
+    setSelectedPanelId(null); // Clear selection when switching pages
+  };
+
+
+  const handleSaveSinglePage = async () => {
+    if (!stageRef.current) return;
+    
+    const dataURL = stageRef.current.toDataURL();
+    saveAs(dataURL, `manga-page-${currentPageIndex + 1}.png`);
+  };
+
+  // Add function to save all pages
+  const handleSaveAllPages = async () => {
+    // Show loading indicator
+    setIsSaving(true);
+    
+    try {
+      // Create a zip file with all pages
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      
+      // Process each page
+      for (let i = 0; i < pages.length; i++) {
+        // Save current page index
+        const currentPage = currentPageIndex;
+        
+        // Temporarily switch to the page we want to save
+        setCurrentPageIndex(i);
+        
+        // Need to wait for the stage to update
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Get the data URL and add to zip
+        const dataURL = stageRef.current.toDataURL();
+        const base64Data = dataURL.split(',')[1];
+        zip.file(`page-${i + 1}.png`, base64Data, {base64: true});
+        
+        // Switch back to original page
+        setCurrentPageIndex(currentPage);
+      }
+      
+      // Generate and save the zip file
+      const content = await zip.generateAsync({type: 'blob'});
+      saveAs(content, 'manga-pages.zip');
+    } catch (error) {
+      console.error('Error saving pages:', error);
+      alert('Error saving pages: ' + error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const applyPageTemplate = (templateId: string) => {
+    const template = pageTemplates.find(t => t.id === templateId);
+    if (!template) return;
+    
+    const gap = 20;
+    const panelTemplates = template.layoutFunction(pageSize.width, pageSize.height, gap);
+    
+    // Create panels from the template
+    const newPanels = panelTemplates.map((template, index) => ({
+      id: `panel-page-${currentPageIndex}-${index}`,
+      x: template.x,
+      y: template.y,
+      width: template.width,
+      height: template.height,
+      characterNames: [],
+      characterPositions: [],
+      dialogues: [],
+      dialoguePositions: [],
+      actions: [],
+      panelIndex: index
+    }));
+    
+    // Update the current page
+    const updatedPages = [...pages];
+    updatedPages[currentPageIndex].panels = newPanels;
+    setPages(updatedPages);
+    setSelectedPanelId(null);
+    setShowTemplateDialog(false);
+  };
+
+  {/* const exportManga = async () => {
+    if (!currentProject || !pages.length) {
+      alert('No project or pages to export');
+      return;
+    }
+    
+    setIsExporting(true);
+    
+    try {
+      // If using local browser-only export
+      if (!apiEndpoint) {
+        // Create a zip file using JSZip
+        const JSZip = (await import('jszip')).default;
+        const zip = new JSZip();
+        
+        // Add metadata
+        zip.file('metadata.json', JSON.stringify({
+          name: currentProject.name,
+          created: currentProject.created,
+          modified: new Date().toISOString(),
+          pageCount: pages.length,
+          characters: currentProject.characters || []
+        }));
+        
+        // Add pages
+        const pagesFolder = zip.folder('pages');
+        
+        // For each page, take a screenshot and add to zip
+        for (let i = 0; i < pages.length; i++) {
+          setCurrentPageIndex(i);
+          
+          // Wait for the page to render
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Take a screenshot using the stage ref
+          if (stageRef.current) {
+            const dataURL = stageRef.current.toDataURL({
+              pixelRatio: 2 // Higher quality
+            });
+            
+            // Convert data URL to blob
+            const imageData = dataURL.split(',')[1];
+            const binaryData = atob(imageData);
+            const array = new Uint8Array(binaryData.length);
+            
+            for (let j = 0; j < binaryData.length; j++) {
+              array[j] = binaryData.charCodeAt(j);
+            }
+            
+            // Add to zip
+            pagesFolder.file(`page-${i+1}.png`, array);
+          }
+        }
+        
+        // Generate the zip file
+        const content = await zip.generateAsync({type: 'blob'});
+        
+        // Trigger download
+        saveAs(content, `${currentProject.name.replace(/\s+/g, '-')}.zip`);
+      } else {
+        // If using backend export API
+        const response = await fetch(`${apiEndpoint}/export/${currentProject.id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            pages,
+            characters: currentProject.characters || []
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Export failed: ${response.status}`);
+        }
+        
+        // Assuming backend returns a URL to download the zip
+        const { downloadUrl } = await response.json();
+        
+        // Trigger download
+        window.location.href = downloadUrl;
+      }
+      
+      // Show success message
+      setStatusMessage('Export completed successfully');
+      setTimeout(() => setStatusMessage(''), 3000);
+    } catch (error) {
+      console.error('Export error:', error);
+      setStatusMessage('Export failed: ' + error.message);
+      setTimeout(() => setStatusMessage(''), 3000);
+    } finally {
+      setIsExporting(false);
+    }
+  }; */}
+
+  const handleBackgroundClick = (e: KonvaEventObject<MouseEvent>) => {
+    // If clicking directly on the stage (background), deselect current panel
+    // Check that the target is the stage itself
+    if (e.target === e.currentTarget) {
+      setSelectedPanelId(null);
+    }
   };
   
   return (
@@ -734,6 +1227,63 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
             >
               Save Page
             </button>
+            <button
+              onClick={handlePrevPage}
+              disabled={currentPageIndex === 0}
+              className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800 disabled:text-gray-400"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <span className="text-sm font-medium text-gray-800">
+              Page {currentPageIndex + 1} of {pages.length}
+            </span>
+            <button
+              onClick={handleNextPage}
+              disabled={currentPageIndex >= pages.length - 1}
+              className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800 disabled:text-gray-400"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button
+              onClick={handleAddPage}
+              className="px-2 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm ml-2"
+            >
+              Add Page
+            </button>
+            <button
+              className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700"
+              onClick={handleSaveSinglePage}
+            >
+              Save Current Page
+            </button>
+            <button
+              onClick={() => setShowTemplateDialog(true)}
+              className="px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+            >
+              Page Templates
+            </button>
+            <button
+              className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700"
+              onClick={handleSaveAllPages}
+              disabled={isSaving}
+            >
+              {isSaving ? 'Saving...' : 'Save All Pages'}
+            </button>
+            <button
+              onClick={() => setShowProjectManager(true)}
+              className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-4"
+            >
+              <span className="flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                {currentProject ? 'Current Project' : 'Projects'}
+              </span>
+            </button>
             <div className="flex items-center mb-4">
               <label htmlFor="snapping-toggle" className="inline-flex items-center cursor-pointer">
                 <span className="mr-3 text-sm font-medium text-gray-900">Snapping</span>
@@ -748,6 +1298,35 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 </div>
               </label>
+              <div className="flex items-center space-x-3">
+                <div className="bg-gray-100 rounded-lg flex items-center p-1">
+                  <button
+                    onClick={handleZoomOut}
+                    className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800"
+                    title="Zoom out"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={handleZoomReset}
+                    className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800 text-sm font-medium"
+                    title="Reset zoom"
+                  >
+                    {Math.round(scale * 100)}%
+                  </button>
+                  <button
+                    onClick={handleZoomIn}
+                    className="px-2 py-1 rounded hover:bg-gray-200 text-gray-800"
+                    title="Zoom in"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -758,6 +1337,10 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
             height={pageSize.height * scale}
             ref={stageRef}
             className="bg-gray-100 shadow-inner border border-gray-300"
+            onClick={handleBackgroundClick}
+            onMouseDown={handleStageMouseDown}
+            onMouseMove={handleStageMouseMove}
+            onMouseUp={handleStageMouseUp}
           >
             <Layer>
               {/* Page background */}
@@ -785,6 +1368,40 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                   onDragMove={handleDragMove}
                   onDragEnd={handleDragEnd}
                 />
+              ))}
+
+              {panels.map(panel => (
+                <React.Fragment key={`boxes-${panel.id}`}>
+                  {/* Character boxes */}
+                  {panel.characterBoxes?.map((box, index) => (
+                    <Rect
+                      key={`char-box-${panel.id}-${index}`}
+                      x={(panel.x + box.x * panel.width) * scale}
+                      y={(panel.y + box.y * panel.height) * scale}
+                      width={box.width * panel.width * scale}
+                      height={box.height * panel.height * scale}
+                      stroke={box.color}
+                      strokeWidth={2}
+                      dash={[5, 5]}
+                      fill={box.color + '33'} // Add transparency
+                    />
+                  ))}
+                  
+                  {/* Text boxes */}
+                  {panel.textBoxes?.map((box, index) => (
+                    <Rect
+                      key={`text-box-${panel.id}-${index}`}
+                      x={(panel.x + box.x * panel.width) * scale}
+                      y={(panel.y + box.y * panel.height) * scale}
+                      width={box.width * panel.width * scale}
+                      height={box.height * panel.height * scale}
+                      stroke="#000000"
+                      strokeWidth={2}
+                      dash={[5, 5]}
+                      fill="#FFFFFF88" // Semi-transparent white
+                    />
+                  ))}
+                </React.Fragment>
               ))}
               
               {/* Panel images */}
@@ -846,15 +1463,124 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                   dash={[5, 5]}
                 />
               ))}
+              {selectedPanel && (
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold mb-2">Box Drawing Tools</h3>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <div className="flex flex-col">
+                      <button
+                        className={`px-3 py-1 rounded-md ${isDrawingCharacterBox ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}
+                        onClick={() => {
+                          setIsDrawingCharacterBox(!isDrawingCharacterBox);
+                          setIsDrawingTextBox(false);
+                        }}
+                      >
+                        Character Box
+                      </button>
+                      {isDrawingCharacterBox && (
+                        <select
+                          className="mt-2 px-2 py-1 border rounded"
+                          value={activeCharacter || ''}
+                          onChange={e => setActiveCharacter(e.target.value)}
+                        >
+                          <option value="">Select Character</option>
+                          {selectedPanel.characterNames.map(name => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    
+                    <button
+                      className={`px-3 py-1 rounded-md ${isDrawingTextBox ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}
+                      onClick={() => {
+                        setIsDrawingTextBox(!isDrawingTextBox);
+                        setIsDrawingCharacterBox(false);
+                      }}
+                    >
+                      Text Box
+                    </button>
+                  </div>
+                  
+                  {/* Display boxes for this panel */}
+                  {selectedPanel && selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 && (
+                    <div className="mt-3">
+                      <h4 className="font-medium text-sm mb-1">Character Boxes:</h4>
+                      <div className="max-h-32 overflow-y-auto">
+                        {selectedPanel.characterBoxes.map((box, idx) => (
+                          <div key={idx} className="flex items-center text-sm mb-1">
+                            <div className="w-3 h-3 mr-2" style={{backgroundColor: box.color}}></div>
+                            <span>{box.character}</span>
+                            <button
+                              className="ml-auto text-red-500 hover:text-red-700"
+                              onClick={() => {
+                                const updatedPanels = [...panels];
+                                const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                                if (panelIndex !== -1 && updatedPanels[panelIndex].characterBoxes) {
+                                  updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter((_, i) => i !== idx);
+                                  updatePanelsForCurrentPage(updatedPanels);
+                                }
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedPanel && selectedPanel.textBoxes && selectedPanel.textBoxes.length > 0 && (
+                    <div className="mt-3">
+                      <h4 className="font-medium text-sm mb-1">Text Boxes:</h4>
+                      <div className="max-h-32 overflow-y-auto">
+                        {selectedPanel.textBoxes.map((box, idx) => (
+                          <div key={idx} className="flex items-center text-sm mb-1">
+                            <span>Text Box {idx + 1}</span>
+                            <button
+                              className="ml-auto text-red-500 hover:text-red-700"
+                              onClick={() => {
+                                const updatedPanels = [...panels];
+                                const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                                if (panelIndex !== -1 && updatedPanels[panelIndex].textBoxes) {
+                                  updatedPanels[panelIndex].textBoxes = updatedPanels[panelIndex].textBoxes.filter((_, i) => i !== idx);
+                                  updatePanelsForCurrentPage(updatedPanels);
+                                }
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </Layer>
           </Stage>
           
           {/* Loading overlay for panel generation */}
-          {selectedPanel?.isGenerating && (
-            <div className="absolute inset-0 bg-black bg-opacity-40 flex justify-center items-center">
-              <div className="text-white text-lg">Generating panel...</div>
-            </div>
-          )}
+          {panels.map(panel => (
+            panel.isGenerating && (
+              <div 
+                key={`overlay-${panel.id}`}
+                className="absolute bg-black bg-opacity-50 flex justify-center items-center"
+                style={{
+                  left: panel.x * scale,
+                  top: panel.y * scale,
+                  width: panel.width * scale,
+                  height: panel.height * scale
+                }}
+              >
+                <div className="text-white text-lg">
+                  {panel.generationQueued 
+                    ? `Queued: ${panel.queueMessage || 'Waiting...'}`
+                    : 'Generating...'}
+                </div>
+              </div>
+            )
+          ))}
         </div>
       </div>
       
@@ -882,7 +1608,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                         const updatedPanels = [...panels];
                         updatedPanels[panelIndex].panelIndex = parseInt(e.target.value) || 0;
                         
-                        setPanels(updatedPanels);
+                        updatePanelsForCurrentPage(updatedPanels);
                       }}
                     />
                   </div>
@@ -901,7 +1627,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                           const updatedPanels = [...panels];
                           updatedPanels[panelIndex].seed = parseInt(e.target.value) || 0;
                           
-                          setPanels(updatedPanels);
+                          updatePanelsForCurrentPage(updatedPanels);
                         }}
                       />
                       <button
@@ -913,7 +1639,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                           const updatedPanels = [...panels];
                           updatedPanels[panelIndex].seed = Math.floor(Math.random() * 1000000);
                           
-                          setPanels(updatedPanels);
+                          updatePanelsForCurrentPage(updatedPanels);
                         }}
                       >
                         Random
@@ -1103,6 +1829,53 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
           </div>
         )}
       </div>
+      {/* Template Dialog */}
+      {showTemplateDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Choose a Page Template</h3>
+              <button
+                onClick={() => setShowTemplateDialog(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {pageTemplates.map(template => (
+                <div 
+                  key={template.id}
+                  className="border rounded-lg p-4 cursor-pointer hover:bg-blue-50"
+                  onClick={() => applyPageTemplate(template.id)}
+                >
+                  <h4 className="font-bold mb-1">{template.name}</h4>
+                  <p className="text-sm text-gray-600 mb-2">{template.description}</p>
+                  <div className="bg-gray-100 border aspect-[2/3] p-1">
+                    <svg viewBox={`0 0 ${pageSize.width} ${pageSize.height}`} className="w-full h-full">
+                      {template.layoutFunction(pageSize.width, pageSize.height, 20).map((panel, i) => (
+                        <rect
+                          key={i}
+                          x={panel.x}
+                          y={panel.y}
+                          width={panel.width}
+                          height={panel.height}
+                          fill="white"
+                          stroke="black"
+                          strokeWidth="2"
+                        />
+                      ))}
+                    </svg>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

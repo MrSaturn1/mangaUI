@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #171717;
   --foreground: #171717;
+  --text-default: #171717; /* Default text color for light mode */
 }
 
 @theme inline {
@@ -15,7 +16,8 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
-    --foreground: #ededed;
+    --foreground: #171717;
+    --text-default: #171717; /* Default text color for dark mode */
   }
 }
 
@@ -23,4 +25,19 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Add these rules to ensure text is visible by default */
+p, span, div, h1, h2, h3, h4, h5, h6, label, button {
+  color: var(--text-default);
+}
+
+/* Override Tailwind's text-gray-500 and other light gray colors */
+.text-gray-400, .text-gray-500 {
+  color: var(--text-default) !important;
+}
+
+/* Keep some contrast for disabled items */
+.disabled\:text-gray-400:disabled {
+  color: #9ca3af !important; /* Darker gray for disabled elements */
 }

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import MangaEditor from '../components/MangaEditor';
 import InitializeModels from '../components/InitializeModels';
 import { FloatingStatus } from '../components/FloatingStatus';
+import ProjectManager from '../components/ProjectManager';
 
 export default function Home() {
   // Model initialization states
@@ -21,6 +22,12 @@ export default function Home() {
   
   // Force "show initialize model" dialog
   const [showInitializeDialog, setShowInitializeDialog] = useState(false);
+
+  // States for project management
+  const [currentProject, setCurrentProject] = useState(null);
+  const [showProjectManager, setShowProjectManager] = useState(false);
+  const [pages, setPages] = useState([]);
+
 
   useEffect(() => {
     // Start initialization right away
@@ -152,6 +159,18 @@ export default function Home() {
       setShowModelStatus(false);
     }, 2000);
   };
+
+  {/* const handleSelectProject = (project, projectPages) => {
+    setCurrentProject(project);
+    setPages(projectPages);
+    setShowProjectManager(false);
+  };
+  
+  // Add a handler for project saving
+  const handleSaveProject = (projectId, pagesToSave) => {
+    // ProjectManager will handle the actual saving
+    console.log(`Saving project ${projectId} with ${pagesToSave.length} pages`);
+  }; */}
 
   return (
     <div className="container mx-auto px-4 py-8">

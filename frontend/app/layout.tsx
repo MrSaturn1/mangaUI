@@ -26,10 +26,8 @@ export default function RootLayout({
               
               <div className="space-x-6">
                 <Link href="/" className="hover:underline">Manga Editor</Link>
-                <Link href="/panel-editor" className="hover:underline">Panel Editor</Link>
+                <Link href="/character-studio" className="hover:underline">Character Studio</Link>
                 <Link href="/page-composer" className="hover:underline">Page Composer</Link>
-                <Link href="/character-manager" className="hover:underline">Character Manager</Link>
-                <Link href="/scene-browser" className="hover:underline">Scene Browser</Link>
               </div>
             </div>
           </div>

@@ -14,6 +14,7 @@ import queue
 import time
 import random
 import traceback
+import datetime
 
 # Add the current directory to the path so we can import manga_generator and character_generator
 sys.path.append('.')
@@ -740,6 +741,231 @@ def check_status():
         'message': initialization_status["message"],
         'progress': initialization_status["progress"]
     })
+
+# PROJECT MANAGEMENT ROUTES
+
+@app.route('/api/projects', methods=['GET'])
+def get_projects():
+    """Get all manga projects"""
+    try:
+        projects_dir = Path("manga_projects")
+        projects_dir.mkdir(exist_ok=True)
+        
+        projects_file = projects_dir / "projects.json"
+        
+        if projects_file.exists():
+            with open(projects_file, 'r') as f:
+                projects = json.load(f)
+        else:
+            projects = []
+            
+        return jsonify({
+            'status': 'success',
+            'projects': projects
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/projects', methods=['POST'])
+def create_project():
+    """Create a new manga project"""
+    try:
+        data = request.json
+        name = data.get('name')
+        
+        if not name:
+            return jsonify({
+                'status': 'error',
+                'message': 'Project name is required'
+            }), 400
+            
+        projects_dir = Path("manga_projects")
+        projects_dir.mkdir(exist_ok=True)
+        
+        projects_file = projects_dir / "projects.json"
+        
+        if projects_file.exists():
+            with open(projects_file, 'r') as f:
+                projects = json.load(f)
+        else:
+            projects = []
+            
+        # Create new project
+        project_id = f"project_{int(time.time())}"
+        new_project = {
+            'id': project_id,
+            'name': name,
+            'pages': 0,
+            'lastModified': datetime.datetime.now().isoformat()
+        }
+        
+        projects.append(new_project)
+        
+        # Save projects metadata
+        with open(projects_file, 'w') as f:
+            json.dump(projects, f, indent=2)
+            
+        # Create project directory
+        project_dir = projects_dir / project_id
+        project_dir.mkdir(exist_ok=True)
+        
+        return jsonify({
+            'status': 'success',
+            'project': new_project
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/projects/<project_id>', methods=['GET'])
+def get_project(project_id):
+    """Get a specific project and its pages"""
+    try:
+        projects_dir = Path("manga_projects")
+        projects_file = projects_dir / "projects.json"
+        
+        if not projects_file.exists():
+            return jsonify({
+                'status': 'error',
+                'message': 'No projects found'
+            }), 404
+            
+        with open(projects_file, 'r') as f:
+            projects = json.load(f)
+            
+        project = next((p for p in projects if p['id'] == project_id), None)
+        
+        if not project:
+            return jsonify({
+                'status': 'error',
+                'message': f'Project {project_id} not found'
+            }), 404
+            
+        # Load project pages
+        project_dir = projects_dir / project_id
+        pages_file = project_dir / "pages.json"
+        
+        if pages_file.exists():
+            with open(pages_file, 'r') as f:
+                pages = json.load(f)
+        else:
+            pages = []
+            
+        return jsonify({
+            'status': 'success',
+            'project': project,
+            'pages': pages
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/projects/<project_id>', methods=['PUT'])
+def update_project(project_id):
+    """Update a project's pages"""
+    try:
+        data = request.json
+        pages = data.get('pages', [])
+        
+        projects_dir = Path("manga_projects")
+        projects_file = projects_dir / "projects.json"
+        
+        if not projects_file.exists():
+            return jsonify({
+                'status': 'error',
+                'message': 'No projects found'
+            }), 404
+            
+        with open(projects_file, 'r') as f:
+            projects = json.load(f)
+            
+        project_index = next((i for i, p in enumerate(projects) if p['id'] == project_id), None)
+        
+        if project_index is None:
+            return jsonify({
+                'status': 'error',
+                'message': f'Project {project_id} not found'
+            }), 404
+            
+        # Update project metadata
+        projects[project_index]['pages'] = len(pages)
+        projects[project_index]['lastModified'] = datetime.datetime.now().isoformat()
+        
+        # Save updated projects metadata
+        with open(projects_file, 'w') as f:
+            json.dump(projects, f, indent=2)
+            
+        # Save project pages
+        project_dir = projects_dir / project_id
+        project_dir.mkdir(exist_ok=True)
+        
+        pages_file = project_dir / "pages.json"
+        with open(pages_file, 'w') as f:
+            json.dump(pages, f, indent=2)
+            
+        return jsonify({
+            'status': 'success',
+            'project': projects[project_index]
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/projects/<project_id>', methods=['DELETE'])
+def delete_project(project_id):
+    """Delete a project"""
+    try:
+        projects_dir = Path("manga_projects")
+        projects_file = projects_dir / "projects.json"
+        
+        if not projects_file.exists():
+            return jsonify({
+                'status': 'error',
+                'message': 'No projects found'
+            }), 404
+            
+        with open(projects_file, 'r') as f:
+            projects = json.load(f)
+            
+        project_index = next((i for i, p in enumerate(projects) if p['id'] == project_id), None)
+        
+        if project_index is None:
+            return jsonify({
+                'status': 'error',
+                'message': f'Project {project_id} not found'
+            }), 404
+            
+        # Remove project from list
+        deleted_project = projects.pop(project_index)
+        
+        # Save updated projects metadata
+        with open(projects_file, 'w') as f:
+            json.dump(projects, f, indent=2)
+            
+        # Delete project directory
+        project_dir = projects_dir / project_id
+        if project_dir.exists():
+            import shutil
+            shutil.rmtree(project_dir)
+            
+        return jsonify({
+            'status': 'success',
+            'message': f'Project {deleted_project["name"]} deleted successfully'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, use_reloader=False)
