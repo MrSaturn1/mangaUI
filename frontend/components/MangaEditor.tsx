@@ -22,6 +22,8 @@ import {
   Square,
   MessageSquare
 } from 'lucide-react';
+import ModeStatusBar from './ModeStatusBar';
+import PanelAdjustmentHandles from './PanelAdjustmentHandles';
 
 
 interface Character {
@@ -115,12 +117,25 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     requestId: string;
     checkInterval: NodeJS.Timeout | null;
   }}>({});
+  // Panel, character, and text box modes and previews
+  const [panelMode, setPanelMode] = useState<'adjust' | 'character-box' | 'text-box'>('adjust');
+  const [previewBox, setPreviewBox] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    character?: string;
+    color?: string;
+  } | null>(null);
 
   // Character and Text Boxes
   const [isDrawingCharacterBox, setIsDrawingCharacterBox] = useState<boolean>(false);
   const [isDrawingTextBox, setIsDrawingTextBox] = useState<boolean>(false);
   const [activeCharacter, setActiveCharacter] = useState<string | null>(null);
   const [drawingStartPos, setDrawingStartPos] = useState<{x: number, y: number} | null>(null);
+  const [selectedBoxType, setSelectedBoxType] = useState<'character' | 'text' | null>(null);
+  const [selectedBoxIndex, setSelectedBoxIndex] = useState<number | null>(null);
+  const transformerBoxRef = useRef<any>(null);
 
   // Refs
   const stageRef = useRef<any>(null);
@@ -163,6 +178,55 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       transformerRef.current.getLayer().batchDraw();
     }
   }, [selectedPanelId]);
+
+  // Add this effect to handle transformer for selected boxes
+  useEffect(() => {
+    if (selectedBoxType && selectedBoxIndex !== null && transformerBoxRef.current && stageRef.current) {
+      const node = stageRef.current.findOne(`.${selectedBoxType}-box-${selectedBoxIndex}`);
+      if (node) {
+        transformerBoxRef.current.nodes([node]);
+        transformerBoxRef.current.getLayer().batchDraw();
+      }
+    } else if (transformerBoxRef.current) {
+      transformerBoxRef.current.nodes([]);
+      transformerBoxRef.current.getLayer().batchDraw();
+    }
+  }, [selectedBoxType, selectedBoxIndex]);
+
+  // Add keyboard handling for delete key when a box is selected
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && 
+          selectedBoxType && 
+          selectedBoxIndex !== null) {
+        handleDeleteBox(selectedBoxType, selectedBoxIndex);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedBoxType, selectedBoxIndex]);
+
+  // Add these helper functions to handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Handle Escape key to cancel current drawing mode
+      if (e.key === 'Escape') {
+        if (panelMode !== 'adjust') {
+          setPanelMode('adjust');
+          setPreviewBox(null);
+          setDrawingStartPos(null);
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [panelMode]);
 
   {/* useEffect(() => {
     if (currentProject && currentProject.characters) {
@@ -473,6 +537,128 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     updatePanelsForCurrentPage(updatedPanels);
   };
 
+  // Handler for selecting a box
+  const handleBoxSelect = (type: 'character' | 'text', index: number) => {
+    setSelectedBoxType(type);
+    setSelectedBoxIndex(index);
+    // Ensure we're in adjust mode
+    setPanelMode('adjust');
+  };
+
+  // Handler for character box transform end
+  const handleBoxTransformEnd = (e: KonvaEventObject<Event>, type: 'character' | 'text', index: number) => {
+    if (!selectedPanelId) return;
+    
+    // Get the transformer node
+    const node = e.target;
+    
+    // Find the panel in our state
+    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+    if (panelIndex === -1) return;
+    
+    const panel = panels[panelIndex];
+    
+    // Calculate actual dimensions (accounting for scale)
+    const relativeX = node.x() / (panel.width * scale);
+    const relativeY = node.y() / (panel.height * scale);
+    const relativeWidth = (node.width() * node.scaleX()) / (panel.width * scale);
+    const relativeHeight = (node.height() * node.scaleY()) / (panel.height * scale);
+    
+    // Ensure values stay within 0-1 range
+    const x = Math.max(0, Math.min(1, relativeX));
+    const y = Math.max(0, Math.min(1, relativeY));
+    const width = Math.max(0.05, Math.min(1 - x, relativeWidth));
+    const height = Math.max(0.05, Math.min(1 - y, relativeHeight));
+    
+    // Update the box
+    const updatedPanels = [...panels];
+    
+    if (type === 'character') {
+      if (!updatedPanels[panelIndex].characterBoxes) return;
+      updatedPanels[panelIndex].characterBoxes[index] = {
+        ...updatedPanels[panelIndex].characterBoxes[index],
+        x, y, width, height
+      };
+    } else if (type === 'text') {
+      if (!updatedPanels[panelIndex].textBoxes) return;
+      updatedPanels[panelIndex].textBoxes[index] = {
+        ...updatedPanels[panelIndex].textBoxes[index],
+        x, y, width, height
+      };
+    }
+    
+    // Reset scale after updating dimensions
+    node.scaleX(1);
+    node.scaleY(1);
+    
+    updatePanelsForCurrentPage(updatedPanels);
+  };
+
+  // Handler for box drag end
+  const handleBoxDragEnd = (e: KonvaEventObject<DragEvent>, type: 'character' | 'text', index: number) => {
+    if (!selectedPanelId) return;
+    
+    // Get the node
+    const node = e.target;
+    
+    // Find the panel in our state
+    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+    if (panelIndex === -1) return;
+    
+    const panel = panels[panelIndex];
+    
+    // Calculate actual dimensions (accounting for scale)
+    const relativeX = node.x() / (panel.width * scale);
+    const relativeY = node.y() / (panel.height * scale);
+    
+    // Ensure values stay within 0-1 range
+    const x = Math.max(0, Math.min(1 - node.width() / (panel.width * scale), relativeX));
+    const y = Math.max(0, Math.min(1 - node.height() / (panel.height * scale), relativeY));
+    
+    // Update the box
+    const updatedPanels = [...panels];
+    
+    if (type === 'character') {
+      if (!updatedPanels[panelIndex].characterBoxes) return;
+      updatedPanels[panelIndex].characterBoxes[index] = {
+        ...updatedPanels[panelIndex].characterBoxes[index],
+        x, y
+      };
+    } else if (type === 'text') {
+      if (!updatedPanels[panelIndex].textBoxes) return;
+      updatedPanels[panelIndex].textBoxes[index] = {
+        ...updatedPanels[panelIndex].textBoxes[index],
+        x, y
+      };
+    }
+    
+    updatePanelsForCurrentPage(updatedPanels);
+  };
+
+  // Handler for deleting a box
+  const handleDeleteBox = (type: 'character' | 'text', index: number) => {
+    if (!selectedPanelId) return;
+    
+    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+    if (panelIndex === -1) return;
+    
+    const updatedPanels = [...panels];
+    
+    if (type === 'character') {
+      if (!updatedPanels[panelIndex].characterBoxes) return;
+      updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter((_, i) => i !== index);
+    } else if (type === 'text') {
+      if (!updatedPanels[panelIndex].textBoxes) return;
+      updatedPanels[panelIndex].textBoxes = updatedPanels[panelIndex].textBoxes.filter((_, i) => i !== index);
+    }
+    
+    updatePanelsForCurrentPage(updatedPanels);
+    
+    // Clear selection
+    setSelectedBoxType(null);
+    setSelectedBoxIndex(null);
+  };
+
   // Zoom control functions
   const handleZoomIn = () => {
     setScale(prevScale => Math.min(prevScale + 0.1, 1.0));
@@ -599,7 +785,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     updatePanelsForCurrentPage(updatedPanels);
   };
 
-  // Add mouse handlers for drawing
+  // Mouse handlers for drawing
   const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
     // If clicking directly on the stage (background), deselect current panel
     if (e.target === e.currentTarget) {
@@ -607,7 +793,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       return;
     }
     
-    if (!selectedPanelId || (!isDrawingCharacterBox && !isDrawingTextBox)) return;
+    if (!selectedPanelId) return;
     
     // Get pointer position relative to the stage
     const pos = e.target.getStage()?.getPointerPosition();
@@ -633,91 +819,148 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       const relativeX = (pos.x - panelX) / panelWidth;
       const relativeY = (pos.y - panelY) / panelHeight;
       
-      // Store starting position
-      setDrawingStartPos({ x: relativeX, y: relativeY });
+      if (panelMode === 'adjust') {
+        // In adjust mode, do nothing and let Konva handle dragging
+        return;
+      } else if (panelMode === 'character-box' || panelMode === 'text-box') {
+        // Store starting position for drawing
+        setDrawingStartPos({ x: relativeX, y: relativeY });
+        
+        // Initialize preview box
+        setPreviewBox({
+          x: relativeX,
+          y: relativeY,
+          width: 0,
+          height: 0,
+          character: activeCharacter || undefined,
+          color: panelMode === 'character-box' && activeCharacter ? 
+                 getCharacterColor(activeCharacter) : undefined
+        });
+        
+        // Prevent event propagation to avoid panel dragging
+        e.cancelBubble = true;
+      }
     }
   };
-
+  
+  // Modified handleStageMouseMove function
   const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
-    // Preview logic can be added here
-  };
-
-  const handleStageMouseUp = (e: KonvaEventObject<MouseEvent>) => {
-    if (!selectedPanelId || !drawingStartPos || (!isDrawingCharacterBox && !isDrawingTextBox)) return;
+    if (!selectedPanelId || !drawingStartPos || !previewBox) return;
+    
+    const panel = panels.find(p => p.id === selectedPanelId);
+    if (!panel) return;
     
     const pos = e.target.getStage()?.getPointerPosition();
     if (!pos) return;
     
-    // Find the selected panel
-    const panel = panels.find(p => p.id === selectedPanelId);
-    if (!panel) return;
-    
-    // Check if mouse up is inside the panel
+    // Panel coordinates
     const panelX = panel.x * scale;
     const panelY = panel.y * scale;
     const panelWidth = panel.width * scale;
     const panelHeight = panel.height * scale;
     
-    if (
-      pos.x >= panelX && 
-      pos.x <= panelX + panelWidth && 
-      pos.y >= panelY && 
-      pos.y <= panelY + panelHeight
-    ) {
-      // Convert to panel-relative coordinates (0-1)
-      const relativeX = (pos.x - panelX) / panelWidth;
-      const relativeY = (pos.y - panelY) / panelHeight;
-      
-      // Calculate width and height
-      const width = Math.abs(relativeX - drawingStartPos.x);
-      const height = Math.abs(relativeY - drawingStartPos.y);
-      
-      // Calculate top-left corner
-      const x = Math.min(drawingStartPos.x, relativeX);
-      const y = Math.min(drawingStartPos.y, relativeY);
-      
-      // Minimum size check
-      if (width < 0.05 || height < 0.05) {
-        setDrawingStartPos(null);
-        return;
-      }
-      
-      // Find the panel index
-      const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-      if (panelIndex === -1) return;
-      
-      const updatedPanels = [...panels];
-      
-      if (isDrawingCharacterBox && activeCharacter) {
-        // Get a color based on the character name (for consistency)
-        const characterColors = [
-          '#FF5733', '#33FF57', '#3357FF', '#FF33F5', '#F5FF33', 
-          '#33FFF5', '#F533FF', '#FF3333', '#33FF33', '#3333FF'
-        ];
-        const colorIndex = activeCharacter.charCodeAt(0) % characterColors.length;
-        
-        // Add the character box
-        const characterBoxes = [...(updatedPanels[panelIndex].characterBoxes || [])];
-        characterBoxes.push({
-          character: activeCharacter,
-          x, y, width, height,
-          color: characterColors[colorIndex]
-        });
-        updatedPanels[panelIndex].characterBoxes = characterBoxes;
-      } else if (isDrawingTextBox) {
-        // Add the text box
-        const textBoxes = [...(updatedPanels[panelIndex].textBoxes || [])];
-        textBoxes.push({
-          text: '',
-          x, y, width, height
-        });
-        updatedPanels[panelIndex].textBoxes = textBoxes;
-      }
-      
-      updatePanelsForCurrentPage(updatedPanels);
+    // Calculate current position relative to panel
+    const relativeX = Math.max(0, Math.min(1, (pos.x - panelX) / panelWidth));
+    const relativeY = Math.max(0, Math.min(1, (pos.y - panelY) / panelHeight));
+    
+    // Update preview box
+    const x = Math.min(drawingStartPos.x, relativeX);
+    const y = Math.min(drawingStartPos.y, relativeY);
+    const width = Math.abs(relativeX - drawingStartPos.x);
+    const height = Math.abs(relativeY - drawingStartPos.y);
+    
+    setPreviewBox({
+      ...previewBox,
+      x, y, width, height
+    });
+    
+    // Prevent panel dragging during box drawing
+    e.cancelBubble = true;
+  };
+  
+  // Modified handleStageMouseUp function
+  const handleStageMouseUp = (e: KonvaEventObject<MouseEvent>) => {
+    if (!selectedPanelId || !drawingStartPos || !previewBox) {
+      setPreviewBox(null);
+      setDrawingStartPos(null);
+      return;
     }
     
+    const pos = e.target.getStage()?.getPointerPosition();
+    if (!pos) {
+      setPreviewBox(null);
+      setDrawingStartPos(null);
+      return;
+    }
+    
+    // Find the selected panel
+    const panel = panels.find(p => p.id === selectedPanelId);
+    if (!panel) {
+      setPreviewBox(null);
+      setDrawingStartPos(null);
+      return;
+    }
+    
+    // Minimum size check
+    if (previewBox.width < 0.05 || previewBox.height < 0.05) {
+      setPreviewBox(null);
+      setDrawingStartPos(null);
+      return;
+    }
+    
+    // Find the panel index
+    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+    if (panelIndex === -1) {
+      setPreviewBox(null);
+      setDrawingStartPos(null);
+      return;
+    }
+    
+    const updatedPanels = [...panels];
+    
+    if (panelMode === 'character-box' && activeCharacter) {
+      // Add the character box
+      const characterBoxes = [...(updatedPanels[panelIndex].characterBoxes || [])];
+      characterBoxes.push({
+        character: activeCharacter,
+        x: previewBox.x,
+        y: previewBox.y,
+        width: previewBox.width,
+        height: previewBox.height,
+        color: getCharacterColor(activeCharacter)
+      });
+      updatedPanels[panelIndex].characterBoxes = characterBoxes;
+    } else if (panelMode === 'text-box') {
+      // Add the text box
+      const textBoxes = [...(updatedPanels[panelIndex].textBoxes || [])];
+      textBoxes.push({
+        text: '',
+        x: previewBox.x,
+        y: previewBox.y,
+        width: previewBox.width,
+        height: previewBox.height
+      });
+      updatedPanels[panelIndex].textBoxes = textBoxes;
+    }
+    
+    updatePanelsForCurrentPage(updatedPanels);
+    
+    // Reset drawing state
+    setPreviewBox(null);
     setDrawingStartPos(null);
+    
+    // After drawing a box, return to adjust mode
+    setPanelMode('adjust');
+  };
+  
+  // Helper function to get a consistent color for a character
+  const getCharacterColor = (characterName: string) => {
+    const characterColors = [
+      '#FF5733', '#33FF57', '#3357FF', '#FF33F5', '#F5FF33', 
+      '#33FFF5', '#F533FF', '#FF3333', '#33FF33', '#3333FF'
+    ];
+    const colorIndex = characterName.charCodeAt(0) % characterColors.length;
+    return characterColors[colorIndex];
   };
   
   // Handler for adding an action to the selected panel
@@ -1370,378 +1613,360 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
         {/* Canvas and Panel Editor */}
         <div className="flex-1 flex overflow-hidden">
           {/* Canvas Area */}
-          <div className="flex-1 bg-white overflow-auto p-4 flex items-center justify-center">
-            <div className="relative" style={{ width: `${pageSize.width * scale}px`, height: `${pageSize.height * scale}px` }}>
-              <Stage 
-                width={pageSize.width * scale} 
-                height={pageSize.height * scale}
-                ref={stageRef}
-                className="bg-gray-100 shadow-inner border border-gray-300"
-                onClick={handleBackgroundClick}
-                onMouseDown={handleStageMouseDown}
-                onMouseMove={handleStageMouseMove}
-                onMouseUp={handleStageMouseUp}
-              >
-                <Layer>
-                  {/* Page background */}
-                  <Rect
-                    width={pageSize.width * scale}
-                    height={pageSize.height * scale}
-                    fill="white"
-                  />
-                  
-                  {/* Panels */}
-                  {panels.map((panel) => (
+          <div className="flex-1 bg-white overflow-auto">
+            
+            <div 
+              className="min-h-full min-w-full flex items-center justify-center p-8 pb-24"
+              style={{
+                width: pageSize.width * scale + 100,
+                height: pageSize.height * scale + 150
+              }}
+            >
+              <div className="relative">
+                <Stage 
+                  width={pageSize.width * scale} 
+                  height={pageSize.height * scale}
+                  ref={stageRef}
+                  className={`bg-gray-100 shadow-inner border border-gray-300 ${
+                    !selectedPanel ? 'cursor-default' :
+                    panelMode === 'adjust' ? 'cursor-move' :
+                    panelMode === 'character-box' || panelMode === 'text-box' ? 'cursor-crosshair' :
+                    'cursor-default'
+                  }`}
+                  onClick={handleBackgroundClick}
+                  onMouseDown={handleStageMouseDown}
+                  onMouseMove={handleStageMouseMove}
+                  onMouseUp={handleStageMouseUp}
+                >
+                  <Layer>
+                    {/* Page background */}
                     <Rect
-                      key={panel.id}
-                      id={panel.id}
-                      x={panel.x * scale}
-                      y={panel.y * scale}
-                      width={panel.width * scale}
-                      height={panel.height * scale}
-                      stroke={selectedPanelId === panel.id ? '#4299e1' : '#000'}
-                      strokeWidth={selectedPanelId === panel.id ? 2 : 1}
-                      fill={panel.imageData ? 'transparent' : '#f7fafc'}
-                      onClick={() => handlePanelSelect(panel.id)}
-                      onTap={() => handlePanelSelect(panel.id)}
-                      draggable
-                      onDragMove={handleDragMove}
-                      onDragEnd={handleDragEnd}
+                      width={pageSize.width * scale}
+                      height={pageSize.height * scale}
+                      fill="white"
                     />
-                  ))}
-  
-                  {panels.map(panel => (
-                    <React.Fragment key={`boxes-${panel.id}`}>
-                      {/* Character boxes */}
-                      {panel.characterBoxes?.map((box, index) => (
+                    
+                    {/* Panels */}
+                    {panels.map((panel) => (
+                      <Rect
+                        key={panel.id}
+                        id={panel.id}
+                        x={panel.x * scale}
+                        y={panel.y * scale}
+                        width={panel.width * scale}
+                        height={panel.height * scale}
+                        stroke={selectedPanelId === panel.id ? '#4299e1' : '#000'}
+                        strokeWidth={selectedPanelId === panel.id ? 2 : 1}
+                        fill={panel.imageData ? 'transparent' : '#f7fafc'}
+                        onClick={() => handlePanelSelect(panel.id)}
+                        onTap={() => handlePanelSelect(panel.id)}
+                        draggable={selectedPanelId === panel.id && panelMode === 'adjust'}
+                        onDragMove={handleDragMove}
+                        onDragEnd={handleDragEnd}
+                      />
+                    ))}
+    
+                    {panels.map(panel => (
+                      <React.Fragment key={`boxes-${panel.id}`}>
+                        {/* Character boxes */}
+                        {panel.characterBoxes?.map((box, index) => (
+                          <Rect
+                            key={`char-box-${panel.id}-${index}`}
+                            x={(panel.x + box.x * panel.width) * scale}
+                            y={(panel.y + box.y * panel.height) * scale}
+                            width={box.width * panel.width * scale}
+                            height={box.height * panel.height * scale}
+                            stroke={box.color}
+                            strokeWidth={2}
+                            dash={[5, 5]}
+                            fill={box.color + '33'} // Add transparency
+                          />
+                        ))}
+                        
+                        {/* Text boxes */}
+                        {panel.textBoxes?.map((box, index) => (
+                          <Rect
+                            key={`text-box-${panel.id}-${index}`}
+                            x={(panel.x + box.x * panel.width) * scale}
+                            y={(panel.y + box.y * panel.height) * scale}
+                            width={box.width * panel.width * scale}
+                            height={box.height * panel.height * scale}
+                            stroke="#000000"
+                            strokeWidth={2}
+                            dash={[5, 5]}
+                            fill="#FFFFFF88" // Semi-transparent white
+                          />
+                        ))}
+                      </React.Fragment>
+                    ))}
+                    
+                    {/* Panel images */}
+                    {panels.map((panel) => (
+                      panel.imageData && (
+                        <KonvaImage
+                          key={`img-${panel.id}`}
+                          x={panel.x * scale}
+                          y={panel.y * scale}
+                          width={panel.width * scale}
+                          height={panel.height * scale}
+                          image={(() => {
+                            const img = new window.Image();
+                            img.src = panel.imageData;
+                            return img;
+                          })()}
+                          onClick={() => handlePanelSelect(panel.id)}
+                          onTap={() => handlePanelSelect(panel.id)}
+                        />
+                      )
+                    ))}
+                    
+                    {/* Transformer for resizing panels */}
+                    <Transformer
+                      ref={transformerRef}
+                      boundBoxFunc={(oldBox, newBox) => {
+                        // Limit size to prevent tiny panels
+                        if (newBox.width < 20 || newBox.height < 20) {
+                          return oldBox;
+                        }
+                        return newBox;
+                      }}
+                      onTransformEnd={handleTransformEnd}
+                      padding={5}
+                      // Enable all anchors for full resizing control
+                      enabledAnchors={[
+                        'top-left', 'top-center', 'top-right',
+                        'middle-left', 'middle-right',
+                        'bottom-left', 'bottom-center', 'bottom-right'
+                      ]}
+                      rotateEnabled={false}
+                    />
+                    {/* Guide lines */}
+                    {showGuides && guides.x.map((x, i) => (
+                      <Line 
+                        key={`x-${i}`}
+                        points={[x, 0, x, pageSize.height * scale]}
+                        stroke="#0066FF"
+                        strokeWidth={1}
+                        dash={[5, 5]}
+                      />
+                    ))}
+                    {showGuides && guides.y.map((y, i) => (
+                      <Line 
+                        key={`y-${i}`}
+                        points={[0, y, pageSize.width * scale, y]}
+                        stroke="#0066FF"
+                        strokeWidth={1}
+                        dash={[5, 5]}
+                      />
+                    ))}
+
+                    {/* Preview box while drawing */}
+                    {previewBox && selectedPanel && (
+                      <Rect
+                        x={(selectedPanel.x + previewBox.x * selectedPanel.width) * scale}
+                        y={(selectedPanel.y + previewBox.y * selectedPanel.height) * scale}
+                        width={previewBox.width * selectedPanel.width * scale}
+                        height={previewBox.height * selectedPanel.height * scale}
+                        stroke={panelMode === 'character-box' ? (previewBox.color || '#FF5733') : '#000000'}
+                        strokeWidth={2}
+                        dash={[5, 5]}
+                        fill={panelMode === 'character-box' ? (previewBox.color + '33' || '#FF573333') : '#FFFFFF44'}
+                      />
+                    )}
+
+                    {/* Character boxes */}
+                    {panels.map(panel => (
+                      panel.characterBoxes?.map((box, index) => (
                         <Rect
                           key={`char-box-${panel.id}-${index}`}
+                          className={`character-box-${index}`}
                           x={(panel.x + box.x * panel.width) * scale}
                           y={(panel.y + box.y * panel.height) * scale}
                           width={box.width * panel.width * scale}
                           height={box.height * panel.height * scale}
                           stroke={box.color}
-                          strokeWidth={2}
+                          strokeWidth={selectedBoxType === 'character' && selectedBoxIndex === index ? 3 : 2}
                           dash={[5, 5]}
                           fill={box.color + '33'} // Add transparency
+                          draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
+                          onClick={() => panel.id === selectedPanelId && handleBoxSelect('character', index)}
+                          onTap={() => panel.id === selectedPanelId && handleBoxSelect('character', index)}
+                          onDragEnd={(e) => handleBoxDragEnd(e, 'character', index)}
+                          onTransformEnd={(e) => handleBoxTransformEnd(e, 'character', index)}
                         />
-                      ))}
-                      
-                      {/* Text boxes */}
-                      {panel.textBoxes?.map((box, index) => (
+                      ))
+                    ))}
+
+                    {/* Text boxes */}
+                    {panels.map(panel => (
+                      panel.textBoxes?.map((box, index) => (
                         <Rect
                           key={`text-box-${panel.id}-${index}`}
+                          className={`text-box-${index}`}
                           x={(panel.x + box.x * panel.width) * scale}
                           y={(panel.y + box.y * panel.height) * scale}
                           width={box.width * panel.width * scale}
                           height={box.height * panel.height * scale}
                           stroke="#000000"
-                          strokeWidth={2}
+                          strokeWidth={selectedBoxType === 'text' && selectedBoxIndex === index ? 3 : 2}
                           dash={[5, 5]}
                           fill="#FFFFFF88" // Semi-transparent white
+                          draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
+                          onClick={() => panel.id === selectedPanelId && handleBoxSelect('text', index)}
+                          onTap={() => panel.id === selectedPanelId && handleBoxSelect('text', index)}
+                          onDragEnd={(e) => handleBoxDragEnd(e, 'text', index)}
+                          onTransformEnd={(e) => handleBoxTransformEnd(e, 'text', index)}
                         />
-                      ))}
-                    </React.Fragment>
-                  ))}
-                  
-                  {/* Panel images */}
-                  {panels.map((panel) => (
-                    panel.imageData && (
-                      <KonvaImage
-                        key={`img-${panel.id}`}
-                        x={panel.x * scale}
-                        y={panel.y * scale}
-                        width={panel.width * scale}
-                        height={panel.height * scale}
-                        image={(() => {
-                          const img = new window.Image();
-                          img.src = panel.imageData;
-                          return img;
-                        })()}
-                        onClick={() => handlePanelSelect(panel.id)}
-                        onTap={() => handlePanelSelect(panel.id)}
-                      />
-                    )
-                  ))}
-                  
-                  {/* Transformer for resizing panels */}
-                  <Transformer
-                    ref={transformerRef}
-                    boundBoxFunc={(oldBox, newBox) => {
-                      // Limit size to prevent tiny panels
-                      if (newBox.width < 20 || newBox.height < 20) {
-                        return oldBox;
-                      }
-                      return newBox;
-                    }}
-                    onTransformEnd={handleTransformEnd}
-                    padding={5}
-                    // Enable all anchors for full resizing control
-                    enabledAnchors={[
-                      'top-left', 'top-center', 'top-right',
-                      'middle-left', 'middle-right',
-                      'bottom-left', 'bottom-center', 'bottom-right'
-                    ]}
-                    rotateEnabled={false}
-                  />
-                  {/* Guide lines */}
-                  {showGuides && guides.x.map((x, i) => (
-                    <Line 
-                      key={`x-${i}`}
-                      points={[x, 0, x, pageSize.height * scale]}
-                      stroke="#0066FF"
-                      strokeWidth={1}
-                      dash={[5, 5]}
+                      ))
+                    ))}
+
+                    {/* Box Transformer */}
+                    <Transformer
+                      ref={transformerBoxRef}
+                      boundBoxFunc={(oldBox, newBox) => {
+                        // Limit size to prevent tiny boxes
+                        if (newBox.width < 10 || newBox.height < 10) {
+                          return oldBox;
+                        }
+                        return newBox;
+                      }}
+                      padding={5}
+                      // Enable all anchors for full resizing control
+                      enabledAnchors={[
+                        'top-left', 'top-center', 'top-right',
+                        'middle-left', 'middle-right',
+                        'bottom-left', 'bottom-center', 'bottom-right'
+                      ]}
+                      rotateEnabled={false}
                     />
-                  ))}
-                  {showGuides && guides.y.map((y, i) => (
-                    <Line 
-                      key={`y-${i}`}
-                      points={[0, y, pageSize.width * scale, y]}
-                      stroke="#0066FF"
-                      strokeWidth={1}
-                      dash={[5, 5]}
-                    />
-                  ))}
-                </Layer>
-              </Stage>
-  
-              {/* Loading overlay for panel generation */}
-              {panels.map(panel => (
-                panel.isGenerating && (
-                  <div 
-                    key={`overlay-${panel.id}`}
-                    className="absolute bg-black bg-opacity-50 flex justify-center items-center"
-                    style={{
-                      left: panel.x * scale,
-                      top: panel.y * scale,
-                      width: panel.width * scale,
-                      height: panel.height * scale
-                    }}
-                  >
-                    <div className="text-white text-lg">
-                      {panel.generationQueued 
-                        ? `Queued: ${panel.queueMessage || 'Waiting...'}`
-                        : 'Generating...'}
+                  </Layer>
+                </Stage>
+    
+                {/* Loading overlay for panel generation */}
+                {panels.map(panel => (
+                  panel.isGenerating && (
+                    <div 
+                      key={`overlay-${panel.id}`}
+                      className="absolute bg-black bg-opacity-50 flex justify-center items-center"
+                      style={{
+                        left: panel.x * scale,
+                        top: panel.y * scale,
+                        width: panel.width * scale,
+                        height: panel.height * scale
+                      }}
+                    >
+                      <div className="text-white text-lg">
+                        {panel.generationQueued 
+                          ? `Queued: ${panel.queueMessage || 'Waiting...'}`
+                          : 'Generating...'}
+                      </div>
                     </div>
-                  </div>
-                )
-              ))}
+                  )
+                ))}
+              </div>
+              {/* <div className="absolute bottom-2 left-2 right-2">
+                <ModeStatusBar 
+                  mode={panelMode}
+                  selectedPanel={selectedPanel}
+                  activeCharacter={activeCharacter}
+                  selectedBoxType={selectedBoxType}
+                  selectedBoxIndex={selectedBoxIndex}
+                />
+              </div> */}
             </div>
           </div>
   
-          {/* Panel Editor - Increased width */}
-          <div className="w-96 bg-white border-l border-gray-200 overflow-y-auto" style={{ maxHeight: '100vh' }}>
+          {/* Panel Editor - Right Sidebar */}
+          <div className="w-[32rem] bg-white border-l border-gray-200 overflow-y-auto overflow-x-hidden flex-shrink-0" style={{ maxHeight: '100vh - 128px' }}>
             {selectedPanel ? (
-              <div className="p-4">
+              <div className="p-4 max-w-full">
                 <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
                 
-                <div className="space-y-6">
-                  {/* Box Drawing Tools - Moved from below canvas to Panel Editor */}
+                <div className="space-y-6 max-w-full">
+                  {/* Panel Mode Toggle */}
                   <div className="pb-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold mb-2">Box Drawing Tools</h3>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      <div className="flex flex-col">
-                        <button
-                          className={`px-3 py-2 rounded-md flex items-center ${isDrawingCharacterBox ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
-                          onClick={() => {
-                            setIsDrawingCharacterBox(!isDrawingCharacterBox);
-                            setIsDrawingTextBox(false);
-                          }}
-                        >
-                          <Square size={16} className="mr-2" />
-                          Character Box
-                        </button>
-                        {isDrawingCharacterBox && (
-                          <select
-                            className="mt-2 px-2 py-1 border rounded"
-                            value={activeCharacter || ''}
-                            onChange={e => setActiveCharacter(e.target.value)}
-                          >
-                            <option value="">Select Character</option>
-                            {selectedPanel.characterNames.map(name => (
-                              <option key={name} value={name}>{name}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                      
+                    <h3 className="text-lg font-semibold mb-2">Panel Mode</h3>
+                    <div className="flex gap-2">
                       <button
-                        className={`px-3 py-2 rounded-md flex items-center ${isDrawingTextBox ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
-                        onClick={() => {
-                          setIsDrawingTextBox(!isDrawingTextBox);
-                          setIsDrawingCharacterBox(false);
-                        }}
+                        className={`flex-1 px-3 py-2 rounded-md flex items-center justify-center ${
+                          panelMode === 'adjust' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'
+                        }`}
+                        onClick={() => setPanelMode('adjust')}
                       >
-                        <MessageSquare size={16} className="mr-2" />
-                        Text Box
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M7 9a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9z" />
+                          <path d="M5 3a2 2 0 00-2 2v6a2 2 0 002 2V5h8a2 2 0 00-2-2H5z" />
+                        </svg>
+                        Adjust Panel
                       </button>
                     </div>
-                    
-                    {/* Display boxes for this panel */}
-                    {selectedPanel && selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 && (
-                      <div className="mt-3">
-                        <h4 className="font-medium text-sm mb-1">Character Boxes:</h4>
-                        <div className="max-h-32 overflow-y-auto">
-                          {selectedPanel.characterBoxes.map((box, idx) => (
-                            <div key={idx} className="flex items-center text-sm mb-1">
-                              <div className="w-3 h-3 mr-2" style={{backgroundColor: box.color}}></div>
-                              <span>{box.character}</span>
-                              <button
-                                className="ml-auto text-red-500 hover:text-red-700"
-                                onClick={() => {
-                                  const updatedPanels = [...panels];
-                                  const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                                  if (panelIndex !== -1 && updatedPanels[panelIndex].characterBoxes) {
-                                    updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter((_, i) => i !== idx);
-                                    updatePanelsForCurrentPage(updatedPanels);
-                                  }
-                                }}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-  
-                    {selectedPanel && selectedPanel.textBoxes && selectedPanel.textBoxes.length > 0 && (
-                      <div className="mt-3">
-                        <h4 className="font-medium text-sm mb-1">Text Boxes:</h4>
-                        <div className="max-h-32 overflow-y-auto">
-                          {selectedPanel.textBoxes.map((box, idx) => (
-                            <div key={idx} className="flex items-center text-sm mb-1">
-                              <span>Text Box {idx + 1}</span>
-                              <button
-                                className="ml-auto text-red-500 hover:text-red-700"
-                                onClick={() => {
-                                  const updatedPanels = [...panels];
-                                  const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                                  if (panelIndex !== -1 && updatedPanels[panelIndex].textBoxes) {
-                                    updatedPanels[panelIndex].textBoxes = updatedPanels[panelIndex].textBoxes.filter((_, i) => i !== idx);
-                                    updatePanelsForCurrentPage(updatedPanels);
-                                  }
-                                }}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
-  
-                  <div className="pb-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold mb-2">Panel Settings</h3>
-                    
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <label className="block text-sm font-medium text-black mb-1">Panel Index</label>
-                        <input
-                          type="number"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          value={selectedPanel.panelIndex || 0}
-                          onChange={(e) => {
-                            const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                            if (panelIndex === -1) return;
-                            
-                            const updatedPanels = [...panels];
-                            updatedPanels[panelIndex].panelIndex = parseInt(e.target.value) || 0;
-                            
-                            updatePanelsForCurrentPage(updatedPanels);
-                          }}
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-black mb-1">Seed</label>
-                        <div className="flex space-x-2">
-                          <input
-                            type="number"
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                            value={selectedPanel.seed || 0}
-                            onChange={(e) => {
-                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                              if (panelIndex === -1) return;
-                              
-                              const updatedPanels = [...panels];
-                              updatedPanels[panelIndex].seed = parseInt(e.target.value) || 0;
-                              
-                              updatePanelsForCurrentPage(updatedPanels);
-                            }}
-                          />
-                          <button
-                            className="px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                            onClick={() => {
-                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                              if (panelIndex === -1) return;
-                              
-                              const updatedPanels = [...panels];
-                              updatedPanels[panelIndex].seed = Math.floor(Math.random() * 1000000);
-                              
-                              updatePanelsForCurrentPage(updatedPanels);
-                            }}
-                          >
-                            Random
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-black mb-1">Setting</label>
-                      <input
-                        type="text"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        value={selectedPanel.setting || ''}
-                        onChange={(e) => handleUpdateSetting(e.target.value)}
-                        placeholder="e.g., INT. HOTEL LOBBY - DAY, manga panel"
-                      />
-                    </div>
-                    
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-black mb-1">Custom Prompt (optional)</label>
-                      <textarea
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        value={selectedPanel.prompt || ''}
-                        onChange={(e) => handleUpdatePrompt(e.target.value)}
-                        placeholder="Leave blank to auto-generate from panel elements"
-                        rows={3}
-                      />
-                    </div>
-                  </div>
-                  
+
+                  {/* Character Section with Box Drawing capability */}
                   <div className="pb-4 border-b border-gray-200">
                     <div className="flex justify-between items-center mb-2">
                       <h3 className="text-lg font-semibold">Characters</h3>
-                      <select
-                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        value=""
-                        onChange={(e) => {
-                          const selectedChar = characters.find(c => c.name === e.target.value);
-                          if (selectedChar) {
-                            handleAddCharacter(selectedChar);
-                          }
-                        }}
-                      >
-                        <option value="">Add Character...</option>
-                        {characters.map(char => (
-                          <option key={char.name} value={char.name}>{char.name}</option>
-                        ))}
-                      </select>
+                      <div className="flex space-x-2">
+                        <select
+                          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                          value=""
+                          onChange={(e) => {
+                            const selectedChar = characters.find(c => c.name === e.target.value);
+                            if (selectedChar) {
+                              handleAddCharacter(selectedChar);
+                            }
+                          }}
+                        >
+                          <option value="">Add Character...</option>
+                          {characters.map(char => (
+                            <option key={char.name} value={char.name}>{char.name}</option>
+                          ))}
+                        </select>
+                        
+                        {selectedPanel.characterNames.length > 0 && (
+                          <button
+                            className={`px-3 py-2 rounded-md flex items-center ${panelMode === 'character-box' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
+                            onClick={() => {
+                              if (panelMode === 'character-box') {
+                                setPanelMode('adjust');
+                              } else {
+                                setPanelMode('character-box');
+                                setActiveCharacter(selectedPanel.characterNames[0]); // Default to first character
+                                setSelectedBoxType(null);
+                                setSelectedBoxIndex(null);
+                              }
+                            }}
+                            disabled={selectedPanel.characterNames.length === 0}
+                          >
+                            <Square size={16} className="mr-2" />
+                            {panelMode === 'character-box' ? 'Cancel' : 'Draw Box'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     
+                    {/* Character list with chips */}
                     <div className="flex flex-wrap gap-2 mb-4">
                       {selectedPanel.characterNames.map((name, index) => (
                         <div 
                           key={`char-${index}`} 
-                          className="flex items-center bg-indigo-100 rounded-full px-3 py-1"
+                          className={`flex items-center rounded-full px-3 py-1 ${
+                            activeCharacter === name && panelMode === 'character-box' 
+                              ? 'bg-indigo-600 text-white' 
+                              : 'bg-indigo-100 text-indigo-700'
+                          }`}
+                          onClick={() => {
+                            if (panelMode === 'character-box') {
+                              setActiveCharacter(name);
+                            }
+                          }}
                         >
                           <span className="mr-2">{name}</span>
                           <button 
-                            onClick={() => handleRemoveCharacter(index)}
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent character selection when removing
+                              handleRemoveCharacter(index);
+                            }}
                             className="text-red-500 hover:text-red-700"
                           >
                             &times;
@@ -1753,20 +1978,147 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                         <div className="text-black italic">No characters added</div>
                       )}
                     </div>
+                    
+                    {/* Character Boxes section */}
+                    {selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="font-medium text-sm mb-2">Character Placement Boxes:</h4>
+                        <div className="max-h-40 overflow-y-auto space-y-2">
+                          {selectedPanel.characterBoxes.map((box, idx) => (
+                            <div 
+                              key={idx} 
+                              className={`flex items-center text-sm p-2 rounded-md border ${
+                                selectedBoxType === 'character' && selectedBoxIndex === idx
+                                  ? 'border-indigo-500 bg-indigo-50'
+                                  : 'border-gray-200 hover:bg-gray-50'
+                              }`}
+                              onClick={() => {
+                                handleBoxSelect('character', idx);
+                                setPanelMode('adjust');
+                              }}
+                            >
+                              <div className="w-4 h-4 mr-2" style={{backgroundColor: box.color}}></div>
+                              <span className="flex-1">{box.character}</span>
+                              <div className="flex space-x-2">
+                                <button
+                                  className="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleBoxSelect('character', idx);
+                                    setPanelMode('adjust');
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteBox('character', idx);
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {panelMode === 'character-box' && (
+                      <div className="mt-3 p-3 bg-indigo-50 rounded-md border border-indigo-200">
+                        <p className="text-sm font-medium mb-2">Drawing Character Box for: <span className="font-bold">{activeCharacter}</span></p>
+                        <p className="text-xs text-gray-600">Click and drag on the panel to draw a placement box for this character.</p>
+                      </div>
+                    )}
                   </div>
-                  
+
+                  {/* Dialogues Section with Text Box Drawing capability */}
                   <div className="pb-4 border-b border-gray-200">
                     <div className="flex justify-between items-center mb-2">
                       <h3 className="text-lg font-semibold">Dialogues</h3>
-                      <button
-                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
-                        onClick={handleAddDialogue}
-                      >
-                        Add Dialogue
-                      </button>
+                      <div className="flex space-x-2">
+                        <button
+                          className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+                          onClick={handleAddDialogue}
+                        >
+                          Add Dialogue
+                        </button>
+                        
+                        <button
+                          className={`px-3 py-2 rounded-md flex items-center ${panelMode === 'text-box' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
+                          onClick={() => {
+                            if (panelMode === 'text-box') {
+                              setPanelMode('adjust');
+                            } else {
+                              setPanelMode('text-box');
+                              setSelectedBoxType(null);
+                              setSelectedBoxIndex(null);
+                            }
+                          }}
+                        >
+                          <MessageSquare size={16} className="mr-2" />
+                          {panelMode === 'text-box' ? 'Cancel' : 'Draw Text Box'}
+                        </button>
+                      </div>
                     </div>
                     
-                    <div className="space-y-4">
+                    {/* Text Boxes section */}
+                    {selectedPanel.textBoxes && selectedPanel.textBoxes.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-sm mb-2">Text Boxes:</h4>
+                        <div className="max-h-40 overflow-y-auto space-y-2">
+                          {selectedPanel.textBoxes.map((box, idx) => (
+                            <div 
+                              key={idx} 
+                              className={`flex items-center text-sm p-2 rounded-md border ${
+                                selectedBoxType === 'text' && selectedBoxIndex === idx
+                                  ? 'border-indigo-500 bg-indigo-50'
+                                  : 'border-gray-200 hover:bg-gray-50'
+                              }`}
+                              onClick={() => {
+                                handleBoxSelect('text', idx);
+                                setPanelMode('adjust');
+                              }}
+                            >
+                              <span className="flex-1">Text Box {idx + 1}</span>
+                              <div className="flex space-x-2">
+                                <button
+                                  className="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleBoxSelect('text', idx);
+                                    setPanelMode('adjust');
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteBox('text', idx);
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {panelMode === 'text-box' && (
+                      <div className="mt-3 p-3 bg-indigo-50 rounded-md border border-indigo-200">
+                        <p className="text-sm font-medium mb-2">Drawing Text Box</p>
+                        <p className="text-xs text-gray-600">Click and drag on the panel to draw a placement box for dialogue text.</p>
+                      </div>
+                    )}
+                    
+                    {/* Dialogues */}
+                    <div className="space-y-4 mt-4">
                       {selectedPanel.dialogues.map((dialogue, index) => (
                         <div key={`dialogue-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
                           <div className="mb-2">
@@ -1809,46 +2161,77 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
                     </div>
                   </div>
                   
+                  {/* Panel Settings */}
                   <div className="pb-4 border-b border-gray-200">
-                    <div className="flex justify-between items-center mb-2">
-                      <h3 className="text-lg font-semibold">Actions</h3>
-                      <button
-                        className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
-                        onClick={handleAddAction}
-                      >
-                        Add Action
-                      </button>
-                    </div>
+                    <h3 className="text-lg font-semibold mb-2">Panel Settings</h3>
                     
-                    <div className="space-y-4">
-                      {selectedPanel.actions.map((action, index) => (
-                        <div key={`action-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
-                          <div className="mb-2">
-                            <label className="block text-sm font-medium text-black mb-1">Text</label>
-                            <textarea
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                              value={action.text}
-                              onChange={(e) => handleUpdateAction(index, e.target.value)}
-                              placeholder="Describe the action..."
-                              rows={2}
-                            />
-                          </div>
-                          
+                    <div className="flex flex-wrap mb-4 max-w-xl">
+                      <div className="pr-4">
+                        <label className="block text-sm font-medium text-black mb-1">Panel Index</label>
+                        <div className="w-20 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700">
+                          {selectedPanel.panelIndex || 0}
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-black mb-1">Seed</label>
+                        <div className="flex space-x-1">
+                          <input
+                            type="number"
+                            className="w-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            value={selectedPanel.seed || 0}
+                            onChange={(e) => {
+                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                              if (panelIndex === -1) return;
+                              
+                              const updatedPanels = [...panels];
+                              updatedPanels[panelIndex].seed = parseInt(e.target.value) || 0;
+                              
+                              updatePanelsForCurrentPage(updatedPanels);
+                            }}
+                          />
                           <button
-                            onClick={() => handleRemoveAction(index)}
-                            className="text-red-500 hover:text-red-700"
+                            className="px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            onClick={() => {
+                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+                              if (panelIndex === -1) return;
+                              
+                              const updatedPanels = [...panels];
+                              updatedPanels[panelIndex].seed = Math.floor(Math.random() * 1000000);
+                              
+                              updatePanelsForCurrentPage(updatedPanels);
+                            }}
                           >
-                            Remove
+                            Random
                           </button>
                         </div>
-                      ))}
-                      
-                      {selectedPanel.actions.length === 0 && (
-                        <div className="text-black italic">No actions added</div>
-                      )}
+                      </div>
+                    </div>
+                    
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-black mb-1">Setting</label>
+                      <input
+                        type="text"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        value={selectedPanel.setting || ''}
+                        onChange={(e) => handleUpdateSetting(e.target.value)}
+                        placeholder="e.g., INT. HOTEL LOBBY - DAY, manga panel"
+                      />
+                    </div>
+                    
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-black mb-1">Custom Prompt</label>
+                      <textarea
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        value={selectedPanel.prompt || ''}
+                        onChange={(e) => handleUpdatePrompt(e.target.value)}
+                        placeholder="Deep in the undergrowth, ferns shake and a RAT emerges..."
+                        rows={3}
+                      />
                     </div>
                   </div>
                   
+                  {/* Generate Panel Button */}
                   <button
                     className="w-full px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
                     onClick={handleGeneratePanel}

@@ -830,21 +830,22 @@ class MangaGenerator:
         character_bboxes = []
         reference_embeddings = []
         
-        # Extract dialogue elements
+        # Extract dialogue elements to keep the dialogue text content
         dialogue_elements = [elem for elem in elements if elem['type'] == 'dialogue']
         
-        # Add text boxes for dialogue
-        for idx, dialogue_elem in enumerate(dialogue_elements):
-            # Position dialogue boxes at different locations
-            if idx == 0:
-                # Top right
-                text_bboxes.append([0.6, 0.1, 0.9, 0.3])
-            elif idx == 1:
-                # Middle left
-                text_bboxes.append([0.1, 0.4, 0.4, 0.6])
-            else:
-                # Bottom right
-                text_bboxes.append([0.6, 0.7, 0.9, 0.9])
+        # Check if there are explicit text boxes defined
+        if 'textBoxes' in panel_data and panel_data['textBoxes'] and len(panel_data['textBoxes']) > 0:
+            # Use the explicit text boxes from the panel data
+            for idx, text_box in enumerate(panel_data['textBoxes']):
+                # Convert relative coordinates from text_box to the format expected by the model
+                text_bboxes.append([
+                    text_box['x'], 
+                    text_box['y'], 
+                    text_box['x'] + text_box['width'], 
+                    text_box['y'] + text_box['height']
+                ])
+        # IMPORTANT: We're not adding default text boxes if none are defined
+        # This way the model won't display text bubbles when you don't want them
         
         # Add character embeddings from keepers
         for character_name in characters:
@@ -852,9 +853,26 @@ class MangaGenerator:
             embedding = self.get_character_embedding(character_name)
             
             if embedding is not None:
-                # Place character in center of panel
-                character_bboxes.append([0.2, 0.2, 0.8, 0.8])
-                reference_embeddings.append(embedding)
+                # If character boxes are defined, use those positions
+                if 'characterBoxes' in panel_data and panel_data['characterBoxes']:
+                    for char_box in panel_data['characterBoxes']:
+                        if char_box['character'] == character_name:
+                            character_bboxes.append([
+                                char_box['x'], 
+                                char_box['y'], 
+                                char_box['x'] + char_box['width'], 
+                                char_box['y'] + char_box['height']
+                            ])
+                            reference_embeddings.append(embedding)
+                            break
+                    else:
+                        # If no matching box, place character in center of panel
+                        character_bboxes.append([0.2, 0.2, 0.8, 0.8])
+                        reference_embeddings.append(embedding)
+                else:
+                    # Default placement if no character boxes defined
+                    character_bboxes.append([0.2, 0.2, 0.8, 0.8])
+                    reference_embeddings.append(embedding)
         
         # Always wrap in batch format for consistent API
         return [text_bboxes], [character_bboxes], [reference_embeddings]

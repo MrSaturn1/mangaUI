@@ -2,6 +2,7 @@
 
 Full-stack UI for generating manga-style comics using the Drawatoon AI model locally.
 Made this to make my life easier generating a manga out of a screenplay I wrote, maybe this will be in shape at some point to help other people.
+Pages are generated at 5x7.5 inches, standard manga page size.
 
 ## Overview
 
