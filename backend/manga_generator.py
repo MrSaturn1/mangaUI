@@ -9,6 +9,8 @@ from tqdm import tqdm
 from PIL import Image, ImageDraw, ImageFont
 from diffusers import PixArtSigmaPipeline
 from torch.nn.utils.rnn import pad_sequence
+import torch.serialization
+from numpy._core.multiarray import _reconstruct
 
 class PanelEstimator:
     """Estimates appropriate number of panels for a scene based on content analysis"""
@@ -647,9 +649,10 @@ class MangaGenerator:
             embedding_path = self.character_embedding_map[character_name]["embedding_path"]
             
             try:
-                # Load the embedding tensor
-                embedding = torch.load(embedding_path)
-                return embedding
+                # Load the embedding tensor with the safe_globals context manager
+                with torch.serialization.safe_globals([_reconstruct]):
+                    embedding = torch.load(embedding_path, weights_only=False)
+                    return embedding
             except Exception as e:
                 print(f"Error loading embedding for {character_name}: {e}")
         
@@ -877,7 +880,7 @@ class MangaGenerator:
         # Always wrap in batch format for consistent API
         return [text_bboxes], [character_bboxes], [reference_embeddings]
 
-    def generate_panel(self, panel_data, panel_index, seed=None, width=None, height=None):
+    def generate_panel(self, panel_data, panel_index, seed=None, width=None, height=None, project_id='default'):
         """
         Generate a manga panel based on panel data with proper dimension handling.
         
@@ -887,10 +890,15 @@ class MangaGenerator:
             seed (int, optional): Random seed for reproducibility
             width (int, optional): Requested panel width from UI
             height (int, optional): Requested panel height from UI
+            project_id (str, optional): Project ID for organization
         
         Returns:
             tuple: (output_path, panel_data) - Path to saved image and panel data
         """
+        # Create project-specific output directory
+        project_panels_dir = self.output_dir / "projects" / f"project_{project_id}" / "panels"
+        project_panels_dir.mkdir(parents=True, exist_ok=True)
+
         # Create a specific prompt for this panel
         prompt = self.create_panel_prompt(panel_data)
         
@@ -992,6 +1000,7 @@ class MangaGenerator:
             panel_data_json['height'] = height
             panel_data_json['gen_width'] = gen_width
             panel_data_json['gen_height'] = gen_height
+            panel_data_json['project_id'] = project_id
             characters = list(panel_data['characters'])
             panel_data_json['characters_with_embeddings'] = [
                 character for character in characters if self.get_character_embedding(character) is not None

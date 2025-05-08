@@ -334,10 +334,16 @@ def panel_request_worker():
                         continue
                     
                     # Extract parameters
+                    project_id = panel_data.get('projectId', 'default')
                     panel_index = panel_data.get('panelIndex', 0)
                     seed = panel_data.get('seed', random.randint(0, 1000000))
                     width = int(panel_data.get('width', 512))
                     height = int(panel_data.get('height', 512))
+
+                    # Create project directories if they don't exist
+                    project_output_dir = Path("manga_projects") / project_id
+                    project_panels_dir = project_output_dir / "panels"
+                    project_panels_dir.mkdir(parents=True, exist_ok=True)
                     
                     # Generate the panel
                     output_path, updated_panel_data = manga_generator.generate_panel(
@@ -345,7 +351,8 @@ def panel_request_worker():
                         panel_index=panel_index,
                         seed=seed,
                         width=width,
-                        height=height
+                        height=height,
+                        project_id=project_id  # Pass project ID
                     )
                     
                     # Convert image to base64 for sending to frontend
@@ -360,7 +367,8 @@ def panel_request_worker():
                         'panelIndex': panel_index,
                         'seed': seed,
                         'width': width,
-                        'height': height
+                        'height': height,
+                        'projectId': project_id
                     }
                     
                 except Exception as e:
@@ -395,6 +403,9 @@ def generate_panel():
     try:
         # Get JSON data from request
         data = request.json
+
+        # Get project ID or use 'default' if not provided
+        project_id = data.get('projectId', 'default')
         
         # Generate a unique request ID
         request_id = f"req_{time.time()}_{random.randint(1000, 9999)}"
@@ -411,6 +422,8 @@ def generate_panel():
             dialoguePositions = data.get('dialoguePositions', [])
             panelIndex = data.get('panelIndex', 0)
             seed = data.get('seed', random.randint(0, 1000000))
+            characterBoxes = data.get('characterBoxes', [])
+            textBoxes = data.get('textBoxes', [])
             
             # Extract panel dimensions from the request
             panel_width = int(data.get('width', 0))
@@ -427,7 +440,9 @@ def generate_panel():
                 'setting': setting,
                 'characters': set(characterNames),
                 'elements': [],
-                'scene_index': 0  # This might not be relevant for UI-generated panels
+                'scene_index': 0,  # This might not be relevant for UI-generated panels
+                'textBoxes': textBoxes,  # Add text boxes data
+                'characterBoxes': characterBoxes  # Add character boxes data
             }
             
             # Add dialogue elements
@@ -462,12 +477,19 @@ def generate_panel():
             # Generate the panel using MangaGenerator
             manga_generator = current_app.config['MANGA_GENERATOR']
             
+            # Create project directories if they don't exist
+            project_output_dir = Path("manga_projects") / project_id
+            project_panels_dir = project_output_dir / "panels"
+            project_panels_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate panel and save to project directory
             output_path, updated_panel_data = manga_generator.generate_panel(
                 panel_data=panel_data,
                 panel_index=panelIndex,
                 seed=seed,
                 width=panel_width,
-                height=panel_height
+                height=panel_height,
+                project_id=project_id  # Pass project ID to generate_panel
             )
             
             # Convert image to base64 for sending to frontend
@@ -483,7 +505,8 @@ def generate_panel():
                 'seed': seed,
                 'width': panel_width,
                 'height': panel_height,
-                'request_id': request_id
+                'request_id': request_id,
+                'projectId': project_id
             })
             
         else:
@@ -491,6 +514,7 @@ def generate_panel():
             panel_request = {
                 'request_id': request_id,
                 'panel_data': {
+                    'projectId': project_id,
                     'prompt': data.get('prompt', ''),
                     'setting': data.get('setting', ''),
                     'characterNames': data.get('characterNames', []),
@@ -597,15 +621,22 @@ def create_page():
     panel_indices = data.get('panelIndices', [])
     layout = data.get('layout', 'grid')  # grid, vertical, custom
     page_index = data.get('pageIndex', 0)
+    project_id = data.get('projectId', 'default')
     
     try:
+        # Create project directories if they don't exist
+        project_output_dir = Path("manga_projects") / project_id
+        project_panels_dir = project_output_dir / "panels"
+        project_pages_dir = project_output_dir / "pages"
+        project_pages_dir.mkdir(parents=True, exist_ok=True)
+        
         # Create panel paths list in the format expected by MangaGenerator
         panel_paths = []
         for idx in panel_indices:
-            panel_path = manga_generator.panels_dir / f"panel_{idx:04d}.png"
+            panel_path = project_panels_dir / f"panel_{idx:04d}.png"
             if panel_path.exists():
                 # Load panel data if available
-                panel_data_path = manga_generator.panels_dir / f"panel_{idx:04d}.json"
+                panel_data_path = project_panels_dir / f"panel_{idx:04d}.json"
                 panel_data = {}
                 if panel_data_path.exists():
                     with open(panel_data_path, 'r') as f:
@@ -619,8 +650,11 @@ def create_page():
         if not panel_paths:
             return jsonify({'status': 'error', 'message': 'No valid panels found'}), 400
         
-        # Generate the page
-        page_path = manga_generator._create_page_layout(panel_paths, page_index)
+        # Generate the page and save to project directory
+        page_path = project_pages_dir / f"page_{page_index:03d}.png"
+        # Call a modified version of _create_page_layout that saves to project directory
+        # or modify the function to accept a custom output path
+        page_path = manga_generator._create_page_layout(panel_paths, page_index, output_path=page_path)
         
         # Read the output page
         with open(page_path, "rb") as img_file:
@@ -629,7 +663,8 @@ def create_page():
         return jsonify({
             'status': 'success',
             'imageData': f"data:image/png;base64,{img_data}",
-            'pageIndex': page_index
+            'pageIndex': page_index,
+            'projectId': project_id
         })
     except Exception as e:
         import traceback
@@ -686,25 +721,33 @@ def parse_screenplay():
 
 @app.route('/api/get_generated_panels', methods=['GET'])
 def get_generated_panels():
-    """Get all generated panels"""
+    """Get all generated panels for a specific project"""
     global manga_generator
     
     if manga_generator is None:
         return jsonify({'status': 'error', 'message': 'Models not initialized'}), 400
     
+    project_id = request.args.get('projectId', 'default')
+    
     try:
         panels = []
-        panels_dir = manga_generator.panels_dir
+        project_panels_dir = Path("manga_projects") / project_id / "panels"
+        
+        if not project_panels_dir.exists():
+            return jsonify({
+                'status': 'success',
+                'panels': []
+            })
         
         # Limit to first 50 panels to avoid overloading
-        for i, panel_file in enumerate(sorted(panels_dir.glob('panel_*.png'))):
+        for i, panel_file in enumerate(sorted(project_panels_dir.glob('panel_*.png'))):
             if i >= 50:  # Limit to 50 panels
                 break
                 
             panel_index = int(panel_file.stem.split('_')[1])
             
             # Load panel data if available
-            panel_data_path = panels_dir / f"{panel_file.stem}.json"
+            panel_data_path = project_panels_dir / f"{panel_file.stem}.json"
             panel_data = {}
             if panel_data_path.exists():
                 with open(panel_data_path, 'r') as f:
@@ -717,7 +760,8 @@ def get_generated_panels():
             panels.append({
                 'index': panel_index,
                 'imageData': f"data:image/png;base64,{img_data}",
-                'data': panel_data
+                'data': panel_data,
+                'projectId': project_id
             })
             
         return jsonify({
@@ -727,7 +771,10 @@ def get_generated_panels():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
     
 @app.route('/api/status', methods=['GET'])
 def check_status():

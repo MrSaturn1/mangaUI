@@ -26,7 +26,7 @@ import ModeStatusBar from './ModeStatusBar';
 import PanelAdjustmentHandles from './PanelAdjustmentHandles';
 
 
-interface Character {
+export interface Character {
   name: string;
   descriptions: string[];
   hasEmbedding: boolean;
@@ -85,31 +85,53 @@ export interface Panel {
   }[];
 }
 
-interface Page {
+export interface Page {
   id: string;
   panels: Panel[]; // This explicitly tells TypeScript that panels is an array of Panel
 }
 
-interface MangaEditorProps {
-  characters: Character[];
-  apiEndpoint?: string; // Base API endpoint URL
-  currentProject?: any;
-  setCurrentProject?: (project: any) => void;
-  onProjectSave?: (projectId: string, pages: Page[]) => void;
+export interface Project {
+  id: string;
+  name: string;
+  pages: number;
+  lastModified: string;
 }
 
-const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'http://localhost:5000/api', currentProject, setCurrentProject, onProjectSave }) => {
+interface MangaEditorProps {
+  characters: Character[];
+  apiEndpoint?: string;
+  currentProject?: Project | null; 
+  setCurrentProject?: (project: any) => void; // Add this
+  pages?: Page[]; // Add this
+  setPages?: (pages: Page[]) => void; // Add this
+  onSaveProject?: (projectId: string, pages: Page[]) => void; // Add this
+  onShowProjectManager?: () => void; // Add this
+}
+
+// Then update the function declaration to use these props
+const MangaEditor: React.FC<MangaEditorProps> = ({ 
+  characters, 
+  apiEndpoint = 'http://localhost:5000/api', 
+  currentProject,
+  setCurrentProject,
+  pages = [],
+  setPages,
+  onSaveProject,
+  onShowProjectManager
+}) => {
   // Page state
   const [pageSize, setPageSize] = useState({ width: 1500, height: 2250 }); // A4 proportions
   const [pageIndex, setPageIndex] = useState<number>(0);
   const [scale, setScale] = useState<number>(0.3); // Scale for the canvas
-  const [pages, setPages] = useState([{ id: 'page-1', panels: [] as Panel[] }]);
+  // Use a local copy of pages to avoid TypeScript errors with setPages
+  const [localPages, setLocalPages] = useState<Page[]>([]);
+  // const [pages, setPages] = useState([{ id: 'page-1', panels: [] as Panel[] }]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [showTemplateDialog, setShowTemplateDialog] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   
   // Panels state
-  const panels: Panel[] = pages[currentPageIndex]?.panels || [];
+  const panels: Panel[] = localPages[currentPageIndex]?.panels || [];
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
   // State for tracking queued panel requests
   const [queuedPanelRequests, setQueuedPanelRequests] = useState<{[key: string]: {
@@ -152,17 +174,50 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
   const [showGuides, setShowGuides] = useState(false);
   const [snapThreshold, setSnapThreshold] = useState<number>(10); // In pixels, adjust as needed
   const [isSnappingEnabled, setIsSnappingEnabled] = useState<boolean>(true);
+
+  // Initialize localPages from the props pages and sync them
+  useEffect(() => {
+    // Initialize localPages with pages from props if they exist
+    if (pages.length > 0) {
+      setLocalPages(pages);
+    } else if (localPages.length === 0) {
+      // Initialize with a default page if no pages exist yet
+      setLocalPages([{ id: 'page-1', panels: [] }]);
+    }
+  }, []);
+  
+  // Sync props pages to localPages when they change externally
+  useEffect(() => {
+    // Only update if the pages prop has changed and is different from localPages
+    if (pages.length > 0 && JSON.stringify(pages) !== JSON.stringify(localPages)) {
+      setLocalPages(pages);
+    }
+  }, [pages]);
+  
+  // Sync localPages back to parent component
+  useEffect(() => {
+    // Only update if setPages exists and localPages has been initialized
+    if (setPages && localPages.length > 0) {
+      setPages(localPages);
+    }
+  }, [localPages, setPages]);
   
   // Effect to add some default panels on first load
   useEffect(() => {
     // Check if the current page has no panels
-    if (pages[currentPageIndex]?.panels.length === 0) {
+    if (localPages[currentPageIndex]?.panels?.length === 0) {
       const defaultPanels = createDefaultPanelsForPage();
-      const updatedPages = [...pages];
+      const updatedPages = [...localPages];
+      
+      // Ensure the page exists
+      if (!updatedPages[currentPageIndex]) {
+        updatedPages[currentPageIndex] = { id: `page-${currentPageIndex + 1}`, panels: [] };
+      }
+      
       updatedPages[currentPageIndex].panels = defaultPanels;
-      setPages(updatedPages);
+      setLocalPages(updatedPages);
     }
-  }, [currentPageIndex, pages]);
+  }, [currentPageIndex, localPages]);
   
   // Effect to update the transformer when a panel is selected
   useEffect(() => {
@@ -228,35 +283,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     };
   }, [panelMode]);
 
-  {/* useEffect(() => {
-    if (currentProject && currentProject.characters) {
-      // This assumes your character list is passed in as props
-      const projectCharacters = characters.filter(
-        character => currentProject.characters.includes(character.name)
-      );
-      
-    }
-  }, [currentProject]);
-
-  const handleProjectSelect = (project) => {
-    setCurrentProject(project);
-    
-    // If the project has pages, load them
-    if (project.pages && project.pages.length > 0) {
-      setPages(project.pages);
-    } else {
-      // Otherwise create a default page
-      setPages([
-        {
-          id: `page-${uuidv4()}`,
-          panels: createDefaultPanelsForPage()
-        }
-      ]);
-    }
-    
-    setShowProjectManager(false);
-  }; */}
-
   // Clean up intervals on unmount
   useEffect(() => {
     return () => {
@@ -275,15 +301,20 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
   };
 
   const updatePanelsForCurrentPage = (newPanels: Panel[]) => {
-    const updatedPages = [...pages];
+    const updatedPages = [...localPages];
+    
+    // Ensure the page exists
+    if (!updatedPages[currentPageIndex]) {
+      updatedPages[currentPageIndex] = { id: `page-${currentPageIndex + 1}`, panels: [] };
+    }
+    
     updatedPages[currentPageIndex] = {
       ...updatedPages[currentPageIndex],
       panels: newPanels
     };
-    setPages(updatedPages);
+    
+    setLocalPages(updatedPages);
   };
-
-  
   
   // Handler for adding a new panel
   const handleAddPanel = () => {
@@ -1032,6 +1063,31 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
     
     updatePanelsForCurrentPage(updatedPanels);
   };
+
+  // Add function to save to project
+  const saveToProject = () => {
+    if (!currentProject) return;
+    
+    setIsSaving(true);
+    
+    // Update project timestamp
+    const updatedProject = {
+      ...currentProject,
+      pages: localPages.length,
+      lastModified: new Date().toISOString()
+    };
+    
+    if (setCurrentProject) {
+      setCurrentProject(updatedProject);
+    }
+    
+    // Call onSaveProject callback
+    if (onSaveProject) {
+      onSaveProject(currentProject.id, localPages);
+    }
+    
+    setIsSaving(false);
+  };
   
   // Handler for generating a panel image
   const handleGeneratePanel = async () => {
@@ -1054,6 +1110,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       const pixelHeight = Math.round(panel.height);
       
       const apiData = {
+        projectId: currentProject?.id || 'default', // Add project ID
         prompt: panel.prompt || '',
         setting: panel.setting || '',
         dialoguePositions: panel.dialoguePositions,
@@ -1269,13 +1326,21 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
 
 
   const handleAddPage = () => {
-    const newPageIndex = pages.length;
+    const newPageIndex = localPages.length;
     const newPage = {
       id: `page-${newPageIndex + 1}`,
       panels: createDefaultPanelsForPage()
     };
     
-    setPages([...pages, newPage]);
+    // Update local state first
+    const updatedPages = [...localPages, newPage];
+    setLocalPages(updatedPages);
+    
+    // Update parent state if needed
+    if (setPages) {
+      setPages(updatedPages);
+    }
+    
     setCurrentPageIndex(newPageIndex);
     setSelectedPanelId(null); // Clear selection when switching pages
   };
@@ -1351,10 +1416,24 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
       panelIndex: index
     }));
     
-    // Update the current page
-    const updatedPages = [...pages];
+    // Update the current page using localPages
+    const updatedPages = [...localPages];
+    
+    // Ensure the page exists
+    if (!updatedPages[currentPageIndex]) {
+      updatedPages[currentPageIndex] = { id: `page-${currentPageIndex + 1}`, panels: [] };
+    }
+    
     updatedPages[currentPageIndex].panels = newPanels;
-    setPages(updatedPages);
+    
+    // Update local state
+    setLocalPages(updatedPages);
+    
+    // Update parent state if needed
+    if (setPages) {
+      setPages(updatedPages);
+    }
+    
     setSelectedPanelId(null);
     setShowTemplateDialog(false);
   };
@@ -1516,8 +1595,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({ characters, apiEndpoint = 'ht
           <FileDown size={20} />
         </button>
         
+        {/* Project Manager button */}
         <button
-          onClick={() => setShowProjectManager(true)}
+          onClick={onShowProjectManager}
           className="p-2 bg-indigo-100 text-blue-600 rounded-md hover:bg-indigo-200"
           title="Project Manager"
         >

@@ -1,18 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Panel } from './MangaEditor';
-
-// Define interfaces for type safety
-interface Project {
-  id: string;
-  name: string;
-  pages: number;
-  lastModified: string;
-}
-
-interface Page {
-  id: string;
-  panels: Panel[];
-}
+import { Page, Project } from './MangaEditor';
 
 interface ApiResponse {
   status: string;
