@@ -1,5 +1,6 @@
 // mangaui/frontend/src/components/InitializeModels.tsx
 import React, { useState } from 'react';
+import { API_ENDPOINT } from '../config';
 
 interface InitializeModelsProps {
   onInitialized: () => void;
@@ -16,7 +17,7 @@ const InitializeModels: React.FC<InitializeModelsProps> = ({ onInitialized }) =>
     try {
       setIsInitializing(true);
       
-      const response = await fetch('http://localhost:5000/api/init', {
+      const response = await fetch(`${API_ENDPOINT}/init`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

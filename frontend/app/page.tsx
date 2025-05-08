@@ -5,6 +5,7 @@ import MangaEditor, { Page, Project, Character } from '../components/MangaEditor
 import InitializeModels from '../components/InitializeModels';
 import { FloatingStatus } from '../components/FloatingStatus';
 import ProjectManager from '../components/ProjectManager';
+import { API_ENDPOINT, API_BASE_URL } from '../config';
 
 export default function Home() {
   // Model initialization states
@@ -26,7 +27,7 @@ export default function Home() {
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [pages, setPages] = useState<Page[]>([]);
-  const [apiEndpoint] = useState('http://localhost:5000/api');
+  const [apiEndpoint] = useState(API_ENDPOINT);
 
 
   useEffect(() => {
@@ -182,7 +183,7 @@ export default function Home() {
   // Function to check if models are already initialized
   const checkInitializationStatus = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/status');
+      const response = await fetch(`${API_BASE_URL}/api/status`);
       const data = await response.json();
       
       // Update status for floating indicator

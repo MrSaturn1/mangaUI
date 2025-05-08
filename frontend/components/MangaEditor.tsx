@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import ModeStatusBar from './ModeStatusBar';
 import PanelAdjustmentHandles from './PanelAdjustmentHandles';
+import { API_ENDPOINT, normalizeImagePath } from '../config';
 
 
 export interface Character {
@@ -55,6 +56,7 @@ export interface Panel {
   y: number;
   width: number;
   height: number;
+  imagePath?: string;
   imageData?: string;
   prompt?: string;
   setting?: string;
@@ -111,7 +113,7 @@ interface MangaEditorProps {
 // Then update the function declaration to use these props
 const MangaEditor: React.FC<MangaEditorProps> = ({ 
   characters, 
-  apiEndpoint = 'http://localhost:5000/api', 
+  apiEndpoint = API_ENDPOINT, 
   currentProject,
   setCurrentProject,
   pages = [],
@@ -168,12 +170,38 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
 
   // Project Management
   const [showProjectManager, setShowProjectManager] = useState<boolean>(false);
+  // Auto-save functionality
+  // Add state for tracking changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
 
   // Helper lines and snapping
   const [guides, setGuides] = useState<{x: number[], y: number[]}>({x: [], y: []});
   const [showGuides, setShowGuides] = useState(false);
   const [snapThreshold, setSnapThreshold] = useState<number>(10); // In pixels, adjust as needed
   const [isSnappingEnabled, setIsSnappingEnabled] = useState<boolean>(true);
+
+  // Project export
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportProgress, setExportProgress] = useState<number>(0);
+  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [showExportDialog, setShowExportDialog] = useState<boolean>(false);
+  const [exportConfig, setExportConfig] = useState<{
+    type: 'png' | 'pdf';
+    pageRange: 'all' | 'current' | 'custom';
+    customRange: string;
+    quality: 'normal' | 'high';
+  }>({
+    type: 'png',
+    pageRange: 'all',
+    customRange: '',
+    quality: 'normal'
+  });
+
+  // Status Indicators
+  const [statusType, setStatusType] = useState<'success' | 'error' | 'info' | 'loading'>('info');
+  const [showStatus, setShowStatus] = useState<boolean>(false);
+  const [statusTimeout, setStatusTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Initialize localPages from the props pages and sync them
   useEffect(() => {
@@ -283,6 +311,78 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     };
   }, [panelMode]);
 
+  // Add useEffect to load images when the current page changes
+  useEffect(() => {
+    // Load images for current page
+    loadPageImages(currentPageIndex);
+    
+    // Optional: Preload images for adjacent pages for smoother navigation
+    if (currentPageIndex > 0) {
+      setTimeout(() => loadPageImages(currentPageIndex - 1), 500);
+    }
+    if (currentPageIndex < localPages.length - 1) {
+      setTimeout(() => loadPageImages(currentPageIndex + 1), 500);
+    }
+  }, [currentPageIndex]);
+
+  // Update useEffect for localPages to track changes
+  useEffect(() => {
+    // Only track changes once pages are loaded
+    if (localPages.length > 0) {
+      setHasUnsavedChanges(true);
+    }
+  }, [localPages]);
+
+  // Add auto-save effect
+  useEffect(() => {
+    // Auto-save every 1 minute if there are unsaved changes
+    const autoSaveInterval = setInterval(() => {
+      if (hasUnsavedChanges && currentProject) {
+        console.log('Auto-saving project...');
+        saveToProject();
+        setHasUnsavedChanges(false);
+        setLastSaveTime(new Date());
+      }
+    }, 60000); // 1 minute
+    
+    // Clean up
+    return () => clearInterval(autoSaveInterval);
+  }, [hasUnsavedChanges, currentProject]);
+
+  // Add beforeunload handler to warn about unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        // Standard way to show a confirmation dialog when closing/reloading
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  // Add useEffect to handle memory cleanup when component unmounts
+  useEffect(() => {
+    return () => {
+      // Clear all image data from memory
+      setLocalPages(prevPages => 
+        prevPages.map(page => ({
+          ...page,
+          panels: page.panels.map(panel => ({
+            ...panel,
+            imageData: undefined
+          }))
+        }))
+      );
+    };
+  }, []);
+
   // Clean up intervals on unmount
   useEffect(() => {
     return () => {
@@ -314,6 +414,118 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     };
     
     setLocalPages(updatedPages);
+  };
+
+  const loadPageImages = async (pageIndex: number) => {
+    if (pageIndex < 0 || pageIndex >= localPages.length) return;
+    
+    const page = localPages[pageIndex];
+    if (!page || !page.panels || page.panels.length === 0) return;
+    
+    const panelsNeedingImages = page.panels.filter(panel => !panel.imageData && panel.imagePath);
+    if (panelsNeedingImages.length === 0) return;
+    
+    const updatedPanels = [...page.panels];
+    const loadingPromises = [];
+    
+    // For each panel with imagePath but no imageData, load the image
+    for (let i = 0; i < updatedPanels.length; i++) {
+      const panel = updatedPanels[i];
+      
+      // Skip if panel already has imageData or doesn't have an imagePath
+      if (panel.imageData || !panel.imagePath) continue;
+      
+      // Create a promise for loading this panel's image
+      const loadPromise = (async () => {
+        try {
+          const normalizedPath = normalizeImagePath(panel.imagePath);
+          // Fetch the image
+          const response = await fetch(normalizedPath!);
+          
+          if (!response.ok) {
+            console.error(`Failed to load image for panel ${panel.id}: ${response.statusText}`);
+            return false;
+          }
+          
+          const blob = await response.blob();
+          const base64Data = await blobToBase64(blob);
+          
+          // Update panel with image data
+          updatedPanels[i] = {
+            ...updatedPanels[i],
+            imageData: base64Data
+          };
+          
+          return true;
+        } catch (error) {
+          console.error(`Error loading image for panel ${panel.id}:`, error);
+          return false;
+        }
+      })();
+      
+      loadingPromises.push(loadPromise);
+    }
+    
+    // Wait for all images to load
+    await Promise.all(loadingPromises);
+    
+    // Update state with all loaded images
+    const updatedPages = [...localPages];
+    updatedPages[pageIndex] = {
+      ...updatedPages[pageIndex],
+      panels: updatedPanels
+    };
+    
+    setLocalPages(updatedPages);
+  };
+  
+  // Helper function to convert blob to base64
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+  
+  // Function to clear image data for a specific page
+  const clearPageImages = (pageIndex: number) => {
+    if (pageIndex < 0 || pageIndex >= localPages.length) return;
+    
+    const page = localPages[pageIndex];
+    if (!page || !page.panels || page.panels.length === 0) return;
+    
+    const updatedPanels = page.panels.map(panel => ({
+      ...panel,
+      imageData: undefined // Clear the image data but keep the path
+    }));
+    
+    const updatedPages = [...localPages];
+    updatedPages[pageIndex] = {
+      ...updatedPages[pageIndex],
+      panels: updatedPanels
+    };
+    
+    setLocalPages(updatedPages);
+  };
+
+  const handlePageChange = (newPageIndex: number) => {
+    // Clear image data from the current page to free memory
+    const updatedPages = [...localPages];
+    
+    if (currentPageIndex >= 0 && currentPageIndex < updatedPages.length) {
+      updatedPages[currentPageIndex].panels = updatedPages[currentPageIndex].panels.map(panel => ({
+        ...panel,
+        imageData: undefined // Clear the image data
+      }));
+    }
+    
+    setLocalPages(updatedPages);
+    setCurrentPageIndex(newPageIndex);
+    
+    // Load images for the new page
+    loadPageImages(newPageIndex);
   };
   
   // Handler for adding a new panel
@@ -1064,32 +1276,83 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     updatePanelsForCurrentPage(updatedPanels);
   };
 
-  // Add function to save to project
+  // Status notification function
+  const showStatusMessage = (message: string, type: 'success' | 'error' | 'info' | 'loading' = 'info', duration = 3000) => {
+    // Clear any existing timeout
+    if (statusTimeout) {
+      clearTimeout(statusTimeout);
+    }
+    
+    // Update status
+    setStatusMessage(message);
+    setStatusType(type);
+    setShowStatus(true);
+    
+    // Hide after duration (unless it's a loading message)
+    if (type !== 'loading' && duration > 0) {
+      const timeout = setTimeout(() => {
+        setShowStatus(false);
+      }, duration);
+      
+      setStatusTimeout(timeout);
+    }
+  };
+
+  // Clear status notification
+  const clearStatusMessage = () => {
+    setShowStatus(false);
+    if (statusTimeout) {
+      clearTimeout(statusTimeout);
+      setStatusTimeout(null);
+    }
+  };
+
+  // Update saveToProject with status indicator
   const saveToProject = () => {
     if (!currentProject) return;
     
+    showStatusMessage('Saving project...', 'loading');
     setIsSaving(true);
     
-    // Update project timestamp
-    const updatedProject = {
-      ...currentProject,
-      pages: localPages.length,
-      lastModified: new Date().toISOString()
-    };
-    
-    if (setCurrentProject) {
-      setCurrentProject(updatedProject);
+    try {
+      // Update project timestamp
+      const updatedProject = {
+        ...currentProject,
+        pages: localPages.length,
+        lastModified: new Date().toISOString()
+      };
+      
+      if (setCurrentProject) {
+        setCurrentProject(updatedProject);
+      }
+      
+      // Strip imageData for saving to reduce storage size
+      const pagesForSaving = localPages.map(page => ({
+        ...page,
+        panels: page.panels.map(panel => ({
+          ...panel,
+          imageData: undefined // Remove image data, keep only paths
+        }))
+      }));
+      
+      // Save to localStorage first (immediate)
+      localStorage.setItem(`project_${currentProject.id}`, JSON.stringify(pagesForSaving));
+      
+      // Call onSaveProject callback with the stripped data
+      if (onSaveProject) {
+        onSaveProject(currentProject.id, pagesForSaving);
+      }
+      
+      showStatusMessage('Project saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving project:', error);
+      showStatusMessage('Error saving project', 'error');
+    } finally {
+      setIsSaving(false);
     }
-    
-    // Call onSaveProject callback
-    if (onSaveProject) {
-      onSaveProject(currentProject.id, localPages);
-    }
-    
-    setIsSaving(false);
   };
-  
-  // Handler for generating a panel image
+
+  // Update handleGeneratePanel with better error handling
   const handleGeneratePanel = async () => {
     if (!selectedPanelId) return;
     
@@ -1100,6 +1363,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].isGenerating = true;
     updatePanelsForCurrentPage(updatedPanels);
+    
+    showStatusMessage('Generating panel...', 'loading');
     
     try {
       // Prepare the data for the API
@@ -1135,12 +1400,17 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         body: JSON.stringify(apiData)
       });
       
+      if (!response.ok) {
+        throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
       
       // Check if the request was queued (models still initializing)
       if (data.status === 'queued') {
         // Show a message that the request is queued
         console.log(`Panel generation queued. Request ID: ${data.request_id}`);
+        showStatusMessage('Panel generation queued. Please wait...', 'info');
         
         // Setup polling to check status
         const requestId = data.request_id;
@@ -1174,10 +1444,11 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       } else if (data.status === 'success') {
         // Handle immediate success (models were already initialized)
         handlePanelGenerationComplete(data, selectedPanelId);
+        showStatusMessage('Panel generated successfully', 'success');
       } else {
         // Handle error
         console.error('Error generating panel:', data.message);
-        alert(`Error generating panel: ${data.message}`);
+        showStatusMessage(`Error: ${data.message}`, 'error');
         
         // Mark the panel as not generating
         const newPanels = [...panels];
@@ -1186,7 +1457,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       }
     } catch (error) {
       console.error('Error calling API:', error);
-      alert(`Error calling API: ${error}`);
+      showStatusMessage(`Error: ${error instanceof Error ? error.message : String(error)}`, 'error');
       
       // Mark the panel as not generating
       const newPanels = [...panels];
@@ -1194,6 +1465,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       updatePanelsForCurrentPage(newPanels);
     }
   };
+
 
   // Function to check status of queued panel request
   const checkPanelStatus = async (requestId: string, panelId: string) => {
@@ -1259,7 +1531,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const newPanels = [...panels];
     newPanels[panelIndex] = {
       ...newPanels[panelIndex],
-      imageData: data.imageData,
+      imageData: data.imageData,          // Keep immediate display data
+      imagePath: data.imagePath ? normalizeImagePath(data.imagePath) : data.imageData,
       prompt: data.prompt || newPanels[panelIndex].prompt,
       isGenerating: false,
       generationQueued: false,
@@ -1275,18 +1548,57 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     alert('Page saving not implemented yet');
   };
 
-  // Page navigation functions
+  // Modified page navigation function with image loading/unloading
+  // Enhanced page loading with status indicators
+  const handlePageNavigation = (newPageIndex: number) => {
+    if (newPageIndex < 0 || newPageIndex >= localPages.length) return;
+    
+    // Check if a panel is generating, and if so, warn the user
+    const isGeneratingOnCurrentPage = panels.some(panel => panel.isGenerating);
+    if (isGeneratingOnCurrentPage) {
+      if (!window.confirm("A panel is currently generating. Navigating away may interrupt this process. Continue anyway?")) {
+        return;
+      }
+    }
+    
+    // Show loading status if the page has images to load
+    const targetPage = localPages[newPageIndex];
+    const hasImagesToLoad = targetPage?.panels.some(panel => panel.imagePath && !panel.imageData);
+    
+    if (hasImagesToLoad) {
+      showStatusMessage('Loading page...', 'loading');
+    }
+    
+    // Clear images from current page to free memory
+    clearPageImages(currentPageIndex);
+    
+    // Update page index
+    setCurrentPageIndex(newPageIndex);
+    setSelectedPanelId(null); // Clear selection
+    
+    // Load images for the new page
+    loadPageImages(newPageIndex)
+      .then(() => {
+        if (hasImagesToLoad) {
+          showStatusMessage('Page loaded', 'success');
+        }
+      })
+      .catch(error => {
+        console.error('Error loading page images:', error);
+        showStatusMessage('Error loading some images', 'error');
+      });
+  };
+
+  // Update the existing navigation handlers to use the new function
   const handlePrevPage = () => {
     if (currentPageIndex > 0) {
-      setSelectedPanelId(null); // Clear selection when switching pages
-      setCurrentPageIndex(currentPageIndex - 1);
+      handlePageNavigation(currentPageIndex - 1);
     }
   };
 
   const handleNextPage = () => {
-    if (currentPageIndex < pages.length - 1) {
-      setSelectedPanelId(null); // Clear selection when switching pages
-      setCurrentPageIndex(currentPageIndex + 1);
+    if (currentPageIndex < localPages.length - 1) {
+      handlePageNavigation(currentPageIndex + 1);
     }
   };
 
@@ -1438,87 +1750,76 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setShowTemplateDialog(false);
   };
 
-  {/* const exportManga = async () => {
-    if (!currentProject || !pages.length) {
-      alert('No project or pages to export');
+  // Function to parse page range input
+  const parsePageRange = (rangeInput: string, totalPages: number): number[] => {
+    const pages: number[] = [];
+    
+    if (!rangeInput.trim()) {
+      return pages;
+    }
+    
+    const parts = rangeInput.split(',');
+    
+    for (const part of parts) {
+      if (part.includes('-')) {
+        // Range like "1-5"
+        const [start, end] = part.split('-').map(num => parseInt(num.trim()));
+        
+        if (!isNaN(start) && !isNaN(end)) {
+          const validStart = Math.max(1, Math.min(start, totalPages));
+          const validEnd = Math.max(validStart, Math.min(end, totalPages));
+          
+          for (let i = validStart; i <= validEnd; i++) {
+            pages.push(i - 1); // Convert to 0-based index
+          }
+        }
+      } else {
+        // Single page like "3"
+        const pageNum = parseInt(part.trim());
+        
+        if (!isNaN(pageNum) && pageNum > 0 && pageNum <= totalPages) {
+          pages.push(pageNum - 1); // Convert to 0-based index
+        }
+      }
+    }
+    
+    // Return unique pages in order
+    return [...new Set(pages)].sort((a, b) => a - b);
+  };
+
+  // Export manga function
+  const exportManga = async () => {
+    if (!currentProject || !localPages.length) {
+      setStatusMessage('No project or pages to export');
+      setTimeout(() => setStatusMessage(''), 3000);
       return;
     }
     
     setIsExporting(true);
+    setExportProgress(0);
     
     try {
-      // If using local browser-only export
-      if (!apiEndpoint) {
-        // Create a zip file using JSZip
-        const JSZip = (await import('jszip')).default;
-        const zip = new JSZip();
+      // Parse page range
+      let pagesToExport: number[];
+      
+      if (exportConfig.pageRange === 'current') {
+        pagesToExport = [currentPageIndex];
+      } else if (exportConfig.pageRange === 'custom') {
+        pagesToExport = parsePageRange(exportConfig.customRange, localPages.length);
         
-        // Add metadata
-        zip.file('metadata.json', JSON.stringify({
-          name: currentProject.name,
-          created: currentProject.created,
-          modified: new Date().toISOString(),
-          pageCount: pages.length,
-          characters: currentProject.characters || []
-        }));
-        
-        // Add pages
-        const pagesFolder = zip.folder('pages');
-        
-        // For each page, take a screenshot and add to zip
-        for (let i = 0; i < pages.length; i++) {
-          setCurrentPageIndex(i);
-          
-          // Wait for the page to render
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          // Take a screenshot using the stage ref
-          if (stageRef.current) {
-            const dataURL = stageRef.current.toDataURL({
-              pixelRatio: 2 // Higher quality
-            });
-            
-            // Convert data URL to blob
-            const imageData = dataURL.split(',')[1];
-            const binaryData = atob(imageData);
-            const array = new Uint8Array(binaryData.length);
-            
-            for (let j = 0; j < binaryData.length; j++) {
-              array[j] = binaryData.charCodeAt(j);
-            }
-            
-            // Add to zip
-            pagesFolder.file(`page-${i+1}.png`, array);
-          }
+        if (pagesToExport.length === 0) {
+          throw new Error('Invalid page range. Please use format like "1-3, 5, 7-9"');
         }
-        
-        // Generate the zip file
-        const content = await zip.generateAsync({type: 'blob'});
-        
-        // Trigger download
-        saveAs(content, `${currentProject.name.replace(/\s+/g, '-')}.zip`);
       } else {
-        // If using backend export API
-        const response = await fetch(`${apiEndpoint}/export/${currentProject.id}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            pages,
-            characters: currentProject.characters || []
-          })
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Export failed: ${response.status}`);
-        }
-        
-        // Assuming backend returns a URL to download the zip
-        const { downloadUrl } = await response.json();
-        
-        // Trigger download
-        window.location.href = downloadUrl;
+        // 'all' is the default
+        pagesToExport = Array.from({ length: localPages.length }, (_, i) => i);
+      }
+      
+      // Different export methods based on type
+      if (exportConfig.type === 'png') {
+        await exportAsPNG(pagesToExport);
+      } else {
+        await exportAsPDF(pagesToExport);
       }
       
       // Show success message
@@ -1526,12 +1827,475 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       setTimeout(() => setStatusMessage(''), 3000);
     } catch (error) {
       console.error('Export error:', error);
-      setStatusMessage('Export failed: ' + error.message);
+      setStatusMessage('Export failed: ' + (error instanceof Error ? error.message : String(error)));
       setTimeout(() => setStatusMessage(''), 3000);
     } finally {
       setIsExporting(false);
+      setExportProgress(100);
+      // Reset to 0 after a delay
+      setTimeout(() => setExportProgress(0), 1000);
     }
-  }; */}
+  };
+
+  // PNG Export (as ZIP file)
+  const exportAsPNG = async (pageIndices: number[]) => {
+    // Create a zip file using JSZip
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+    
+    // Add metadata
+    zip.file('metadata.json', JSON.stringify({
+      name: currentProject?.name,
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      pageCount: pageIndices.length,
+      exportDate: new Date().toISOString()
+    }));
+    
+    // Add pages
+    const pagesFolder = zip.folder('pages');
+    
+    // Original page index to restore later
+    const originalPageIndex = currentPageIndex;
+    
+    // Pixel ratio for export quality
+    const pixelRatio = exportConfig.quality === 'high' ? 3 : 2;
+    
+    // For each page, take a screenshot and add to zip
+    for (let i = 0; i < pageIndices.length; i++) {
+      const pageIndex = pageIndices[i];
+      
+      // Update progress
+      setExportProgress(Math.round((i / pageIndices.length) * 100));
+      
+      // Switch to page
+      setCurrentPageIndex(pageIndex);
+      
+      // Wait for the page to render
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Take a screenshot using the stage ref
+      if (stageRef.current) {
+        const dataURL = stageRef.current.toDataURL({
+          pixelRatio,
+          mimeType: 'image/png'
+        });
+        
+        // Convert data URL to blob
+        const imageData = dataURL.split(',')[1];
+        const binaryData = atob(imageData);
+        const array = new Uint8Array(binaryData.length);
+        
+        for (let j = 0; j < binaryData.length; j++) {
+          array[j] = binaryData.charCodeAt(j);
+        }
+        
+        // Add to zip with original page number for clarity
+        pagesFolder?.file(`page-${pageIndex + 1}.png`, array);
+      }
+    }
+    
+    // Restore original page index
+    setCurrentPageIndex(originalPageIndex);
+    
+    // Generate the zip file
+    const content = await zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: {
+        level: 9 // Maximum compression
+      }
+    });
+    
+    // Create name based on project and export type
+    const fileName = `${currentProject?.name.replace(/\s+/g, '-')}-pages.zip`;
+    
+    // Trigger download
+    saveAs(content, fileName);
+  };
+
+  // PDF Export
+  const exportAsPDF = async (pageIndices: number[]) => {
+    // Check if apiEndpoint is available
+    if (apiEndpoint) {
+      // Server-side PDF generation
+      await serverPDFExport(pageIndices);
+    } else {
+      // Client-side PDF generation
+      await clientPDFExport(pageIndices);
+    }
+  };
+
+  // Client-side PDF generation
+  const clientPDFExport = async (pageIndices: number[]) => {
+    // Import jsPDF and dependencies dynamically
+    const { default: jsPDF } = await import('jspdf');
+    
+    // Original page index to restore later
+    const originalPageIndex = currentPageIndex;
+    
+    // Create a new PDF document
+    // A4 size: 210 × 297 mm (8.27 × 11.69 inches)
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+    
+    // PDF dimensions
+    const pdfWidth = 210;  // mm
+    const pdfHeight = 297; // mm
+    
+    // Manga dimensions with margin
+    const margin = 10; // mm
+    const mangaWidth = pdfWidth - (margin * 2);
+    const mangaHeight = pdfHeight - (margin * 2);
+    
+    // Pixel ratio for quality
+    const pixelRatio = exportConfig.quality === 'high' ? 3 : 2;
+    
+    // For each page
+    for (let i = 0; i < pageIndices.length; i++) {
+      const pageIndex = pageIndices[i];
+      
+      // Update progress
+      setExportProgress(Math.round((i / pageIndices.length) * 100));
+      
+      // Add new page to PDF if not the first page
+      if (i > 0) {
+        pdf.addPage();
+      }
+      
+      // Switch to page
+      setCurrentPageIndex(pageIndex);
+      
+      // Wait for the page to render
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // Get screenshot
+      if (stageRef.current) {
+        const dataURL = stageRef.current.toDataURL({
+          pixelRatio,
+          mimeType: 'image/jpeg',
+          quality: 0.9
+        });
+        
+        // Add image to PDF
+        pdf.addImage(
+          dataURL,
+          'JPEG',
+          margin,
+          margin,
+          mangaWidth,
+          mangaHeight,
+          `page-${pageIndex + 1}`,
+          'MEDIUM'
+        );
+      }
+    }
+    
+    // Restore original page index
+    setCurrentPageIndex(originalPageIndex);
+    
+    // Create file name
+    const fileName = `${currentProject?.name.replace(/\s+/g, '-')}.pdf`;
+    
+    // Save PDF
+    pdf.save(fileName);
+  };
+
+  // Server-side PDF generation
+  const serverPDFExport = async (pageIndices: number[]) => {
+    // Store current page index to restore later
+    const originalPageIndex = currentPageIndex;
+    
+    // We'll send image data for each page to the server
+    const pageImages = [];
+    
+    // Pixel ratio for quality
+    const pixelRatio = exportConfig.quality === 'high' ? 3 : 2;
+    
+    // For each page in the range
+    for (let i = 0; i < pageIndices.length; i++) {
+      const pageIndex = pageIndices[i];
+      
+      // Update progress
+      setExportProgress(Math.round((i / pageIndices.length) * 50)); // First half of progress
+      
+      // Switch to page
+      setCurrentPageIndex(pageIndex);
+      
+      // Wait for the page to render
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // Get screenshot
+      if (stageRef.current) {
+        const dataURL = stageRef.current.toDataURL({
+          pixelRatio,
+          mimeType: 'image/jpeg',
+          quality: 0.9
+        });
+        
+        pageImages.push({
+          pageIndex,
+          dataURL
+        });
+      }
+    }
+    
+    // Restore original page index
+    setCurrentPageIndex(originalPageIndex);
+    
+    // Send to server
+    const response = await fetch(`${normalizeImagePath('/api/export/pdf')}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectId: currentProject?.id,
+        projectName: currentProject?.name,
+        pages: pageImages,
+        quality: exportConfig.quality
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`PDF generation failed: ${response.status}`);
+    }
+    
+    // Get the download URL
+    const { downloadUrl } = await response.json();
+    
+    // Update progress for second half
+    setExportProgress(75);
+    
+    // Download the PDF
+    const pdfResponse = await fetch(downloadUrl);
+    const pdfBlob = await pdfResponse.blob();
+    
+    // Update progress
+    setExportProgress(95);
+    
+    // Create a file name
+    const fileName = `${currentProject?.name.replace(/\s+/g, '-')}.pdf`;
+    
+    // Save the file
+    saveAs(pdfBlob, fileName);
+  };
+
+  // Add this to render the export dialog modal
+  const renderExportDialog = () => {
+    if (!showExportDialog) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold">Export Manga</h3>
+            <button
+              onClick={() => setShowExportDialog(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          <div className="space-y-4">
+            {/* Export Type */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Export Format</label>
+              <div className="flex space-x-4">
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    className="form-radio h-4 w-4 text-indigo-600"
+                    value="png"
+                    checked={exportConfig.type === 'png'}
+                    onChange={() => setExportConfig(prev => ({ ...prev, type: 'png' }))}
+                  />
+                  <span className="ml-2">PNG Images (ZIP)</span>
+                </label>
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    className="form-radio h-4 w-4 text-indigo-600"
+                    value="pdf"
+                    checked={exportConfig.type === 'pdf'}
+                    onChange={() => setExportConfig(prev => ({ ...prev, type: 'pdf' }))}
+                  />
+                  <span className="ml-2">PDF Document</span>
+                </label>
+              </div>
+            </div>
+            
+            {/* Page Range */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Pages to Export</label>
+              <div className="space-y-2">
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    className="form-radio h-4 w-4 text-indigo-600"
+                    value="all"
+                    checked={exportConfig.pageRange === 'all'}
+                    onChange={() => setExportConfig(prev => ({ ...prev, pageRange: 'all' }))}
+                  />
+                  <span className="ml-2">All Pages ({localPages.length})</span>
+                </label>
+                
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    className="form-radio h-4 w-4 text-indigo-600"
+                    value="current"
+                    checked={exportConfig.pageRange === 'current'}
+                    onChange={() => setExportConfig(prev => ({ ...prev, pageRange: 'current' }))}
+                  />
+                  <span className="ml-2">Current Page Only ({currentPageIndex + 1})</span>
+                </label>
+                
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    className="form-radio h-4 w-4 text-indigo-600"
+                    value="custom"
+                    checked={exportConfig.pageRange === 'custom'}
+                    onChange={() => setExportConfig(prev => ({ ...prev, pageRange: 'custom' }))}
+                  />
+                  <span className="ml-2">Custom Range</span>
+                </label>
+                
+                {exportConfig.pageRange === 'custom' && (
+                  <div className="ml-6">
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="e.g. 1-3, 5, 7-9"
+                      value={exportConfig.customRange}
+                      onChange={(e) => setExportConfig(prev => ({ ...prev, customRange: e.target.value }))}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Enter page numbers or ranges (e.g. "1-3, 5, 7-9")
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Quality */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Export Quality</label>
+              <div className="flex space-x-4">
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    className="form-radio h-4 w-4 text-indigo-600"
+                    value="normal"
+                    checked={exportConfig.quality === 'normal'}
+                    onChange={() => setExportConfig(prev => ({ ...prev, quality: 'normal' }))}
+                  />
+                  <span className="ml-2">Normal</span>
+                </label>
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    className="form-radio h-4 w-4 text-indigo-600"
+                    value="high"
+                    checked={exportConfig.quality === 'high'}
+                    onChange={() => setExportConfig(prev => ({ ...prev, quality: 'high' }))}
+                  />
+                  <span className="ml-2">High Resolution</span>
+                </label>
+              </div>
+            </div>
+            
+            {/* Export Button */}
+            <div className="pt-4">
+              <button
+                onClick={() => {
+                  setShowExportDialog(false);
+                  exportManga();
+                }}
+                disabled={isExporting}
+                className="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
+              >
+                {isExporting ? 'Exporting...' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Add the status message component to render
+  const renderStatusMessage = () => {
+    if (!showStatus) return null;
+    
+    const bgColors = {
+      success: 'bg-green-100 border-green-500',
+      error: 'bg-red-100 border-red-500',
+      info: 'bg-blue-100 border-blue-500',
+      loading: 'bg-indigo-100 border-indigo-500'
+    };
+    
+    const textColors = {
+      success: 'text-green-700',
+      error: 'text-red-700',
+      info: 'text-blue-700',
+      loading: 'text-indigo-700'
+    };
+    
+    const icons = {
+      success: (
+        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+        </svg>
+      ),
+      error: (
+        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+        </svg>
+      ),
+      info: (
+        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 002 0v-3a1 1 0 00-2 0v3z" clipRule="evenodd" />
+        </svg>
+      ),
+      loading: (
+        <div className="animate-spin w-5 h-5 mr-2 border-2 border-dashed rounded-full border-current"></div>
+      )
+    };
+    
+    return (
+      <div className="fixed bottom-4 right-4 max-w-sm z-50">
+        <div className={`p-3 rounded-lg shadow-md border-l-4 ${bgColors[statusType]}`}>
+          <div className="flex items-center">
+            <div className={textColors[statusType]}>
+              {icons[statusType]}
+            </div>
+            <div className={`ml-3 ${textColors[statusType]}`}>
+              <p className="text-sm font-medium">{statusMessage}</p>
+            </div>
+            {statusType !== 'loading' && (
+              <button 
+                onClick={clearStatusMessage}
+                className="ml-auto text-gray-400 hover:text-gray-500"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
 
   const handleBackgroundClick = (e: KonvaEventObject<MouseEvent>) => {
     // If clicking directly on the stage (background), deselect current panel
@@ -1539,6 +2303,24 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     if (e.target === e.currentTarget) {
       setSelectedPanelId(null);
     }
+  };
+
+  const renderSaveStatus = () => {
+    return (
+      <div className="text-xs text-gray-500 flex items-center">
+        {hasUnsavedChanges ? (
+          <>
+            <span className="w-2 h-2 bg-yellow-500 rounded-full mr-1"></span>
+            Unsaved changes
+          </>
+        ) : (
+          <>
+            <span className="w-2 h-2 bg-green-500 rounded-full mr-1"></span>
+            Saved {lastSaveTime ? `at ${lastSaveTime.toLocaleTimeString()}` : ''}
+          </>
+        )}
+      </div>
+    );
   };
   
   return (
@@ -1588,9 +2370,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         
         <button
           className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
-          onClick={handleSaveAllPages}
-          disabled={isSaving}
-          title="Export All Pages"
+          onClick={() => setShowExportDialog(true)}
+          title="Export Manga"
         >
           <FileDown size={20} />
         </button>
@@ -1687,6 +2468,12 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
             >
               <ZoomIn size={16} />
             </button>
+            {currentProject && (
+              <>
+                <h2 className="text-sm font-medium">{currentProject.name}</h2>
+                {renderSaveStatus()}
+              </>
+            )}
           </div>
         </div>
   
@@ -2336,6 +3123,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
           </div>
         </div>
       </div>
+
+      {renderExportDialog()}
+      {renderStatusMessage()}
   
       {/* Template Dialog Modal */}
       {showTemplateDialog && (

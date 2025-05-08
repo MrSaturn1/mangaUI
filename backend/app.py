@@ -1,5 +1,5 @@
 # mangaui/backend/app.py
-from flask import Flask, request, jsonify, current_app
+from flask import Flask, request, jsonify, current_app, send_file
 from flask_cors import CORS
 import torch
 import json
@@ -15,6 +15,8 @@ import time
 import random
 import traceback
 import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
 # Add the current directory to the path so we can import manga_generator and character_generator
 sys.path.append('.')
@@ -500,6 +502,7 @@ def generate_panel():
             return jsonify({
                 'status': 'success',
                 'imageData': f'data:image/png;base64,{img_data}',
+                'imagePath': f'/api/images/{project_id}/panels/panel_{panelIndex:04d}.png',
                 'prompt': prompt or manga_generator.create_panel_prompt(panel_data),
                 'panelIndex': panelIndex,
                 'seed': seed,
@@ -775,6 +778,28 @@ def get_generated_panels():
             'status': 'error',
             'message': str(e)
         }), 500
+
+@app.route('/api/images/<project_id>/<filename>', methods=['GET'])
+def get_image(project_id, filename):
+    """Retrieve an image by its path"""
+    try:
+        image_path = Path("manga_projects") / project_id / "panels" / filename
+        
+        if not image_path.exists():
+            # Check if it's in pages folder
+            image_path = Path("manga_projects") / project_id / "pages" / filename
+            if not image_path.exists():
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Image not found'
+                }), 404
+        
+        return send_file(image_path.as_posix(), mimetype='image/png')
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
     
 @app.route('/api/status', methods=['GET'])
 def check_status():
@@ -1008,6 +1033,134 @@ def delete_project(project_id):
             'status': 'success',
             'message': f'Project {deleted_project["name"]} deleted successfully'
         })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+    
+@app.route('/api/export/pdf', methods=['POST'])
+def export_pdf():
+    """Generate a PDF from manga pages using standard manga dimensions (5" × 7.5")"""
+    try:
+        data = request.json
+        project_id = data.get('projectId', 'default')
+        project_name = data.get('projectName', 'Untitled')
+        page_images = data.get('pages', [])
+        quality = data.get('quality', 'normal')
+        
+        if not page_images:
+            return jsonify({
+                'status': 'error',
+                'message': 'No page images provided'
+            }), 400
+        
+        # Create exports directory if it doesn't exist
+        exports_dir = Path("manga_projects") / project_id / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate a unique filename with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{project_name.replace(' ', '_')}_{timestamp}.pdf"
+        pdf_path = exports_dir / filename
+        
+        # Import PDF library
+        from reportlab.lib.pagesizes import inch
+        from reportlab.pdfgen import canvas
+        from PIL import Image
+        import io
+        
+        # Standard manga dimensions: 5" × 7.5"
+        manga_width = 5 * inch
+        manga_height = 7.5 * inch
+        manga_size = (manga_width, manga_height)
+        
+        # Determine quality settings
+        dpi = 300 if quality == 'high' else 150
+        
+        # Create PDF
+        c = canvas.Canvas(pdf_path.as_posix(), pagesize=manga_size)
+        
+        for page_data in page_images:
+            page_index = page_data.get('pageIndex', 0)
+            data_url = page_data.get('dataURL')
+            
+            if not data_url:
+                continue
+            
+            # Extract base64 data from data URL
+            header, encoded = data_url.split(",", 1)
+            binary_data = base64.b64decode(encoded)
+            
+            # Load image with PIL
+            img = Image.open(io.BytesIO(binary_data))
+            
+            # Calculate scaling to fit manga page with small margin
+            margin = 0.125 * inch  # 1/8 inch margin
+            content_width = manga_width - (2 * margin)
+            content_height = manga_height - (2 * margin)
+            
+            # Maintain aspect ratio
+            img_ratio = img.width / img.height
+            page_ratio = content_width / content_height
+            
+            if img_ratio > page_ratio:  # Image is wider than the page ratio
+                scaled_width = content_width
+                scaled_height = content_width / img_ratio
+            else:  # Image is taller than the page ratio
+                scaled_height = content_height
+                scaled_width = content_height * img_ratio
+            
+            # Calculate position to center the image
+            x_position = margin + (content_width - scaled_width) / 2
+            y_position = manga_height - margin - scaled_height  # PDF origin is at bottom left
+            
+            # Add image to PDF
+            c.drawImage(
+                ImageReader(img),
+                x_position,
+                y_position,
+                width=scaled_width,
+                height=scaled_height
+            )
+            
+            # Move to next page
+            c.showPage()
+        
+        # Save PDF
+        c.save()
+        
+        # Return download URL
+        return jsonify({
+            'status': 'success',
+            'downloadUrl': f'/api/downloads/{project_id}/{filename}'
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+    
+@app.route('/api/downloads/<project_id>/<filename>', methods=['GET'])
+def download_file(project_id, filename):
+    """Download a generated file (PDF, etc.)"""
+    try:
+        file_path = Path("manga_projects") / project_id / "exports" / filename
+        
+        if not file_path.exists():
+            return jsonify({
+                'status': 'error',
+                'message': 'File not found'
+            }), 404
+        
+        return send_file(
+            file_path.as_posix(),
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/pdf' if filename.endswith('.pdf') else 'application/octet-stream'
+        )
     except Exception as e:
         return jsonify({
             'status': 'error',
