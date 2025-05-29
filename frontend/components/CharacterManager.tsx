@@ -9,7 +9,7 @@ interface Character {
 }
 
 interface CharacterManagerProps {
-  apiEndpoint: string;
+  apiBaseUrl: string;
   onSelectCharacter?: (character: Character) => void;
   onCharacterUpdated?: (characters: Character[]) => void;
   initialSelectedCharacter?: Character | null;
@@ -17,7 +17,7 @@ interface CharacterManagerProps {
 }
 
 const CharacterManager: React.FC<CharacterManagerProps> = ({ 
-  apiEndpoint, 
+  apiBaseUrl, 
   onSelectCharacter,
   onCharacterUpdated,
   initialSelectedCharacter = null,
@@ -45,7 +45,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     setError(null);
     
     try {
-      const response = await fetch(`${apiEndpoint}/api/get_characters`);
+      const response = await fetch(`${apiBaseUrl}/api/get_characters`);
       const data = await response.json();
       
       if (data.status === 'success') {
@@ -82,7 +82,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     setError(null);
     
     try {
-      const response = await fetch(`${apiEndpoint}/api/generate_character`, {
+      const response = await fetch(`${apiBaseUrl}/api/generate_character`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -131,7 +131,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     setError(null);
     
     try {
-      const response = await fetch(`${apiEndpoint}/api/save_to_keepers`, {
+      const response = await fetch(`${apiBaseUrl}/api/save_to_keepers`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -170,7 +170,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     
     try {
       // This would call your API to add a new character to the database
-      const response = await fetch(`${apiEndpoint}/api/add_character`, {
+      const response = await fetch(`${apiBaseUrl}/api/add_character`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

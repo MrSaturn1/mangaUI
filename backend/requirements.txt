@@ -1,5 +1,6 @@
-flask==2.0.1
-flask-cors==3.0.10
+fastapi
+pydantic
+uvicorn
 torch==2.6.0  # Specific version that works with drawatoon on M3 Max
 pillow==9.0.0
 tqdm==4.62.3

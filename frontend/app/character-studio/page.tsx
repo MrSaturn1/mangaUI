@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import CharacterManager from '@/components/CharacterManager';
 import Link from 'next/link';
+import { API_ENDPOINT, API_BASE_URL } from '../../config';
 
 interface Project {
   id: string;
@@ -31,7 +32,7 @@ const CharacterStudioPage = () => {
     
     try {
       // Attempt to fetch from API
-      const response = await fetch('http://localhost:5000/api/projects');
+      const response = await fetch(`${API_ENDPOINT}/projects`);
       
       if (response.ok) {
         const data = await response.json();
@@ -285,7 +286,7 @@ const CharacterStudioPage = () => {
       
       {/* Character Manager with full-width display */}
       <CharacterManager 
-        apiEndpoint="http://localhost:5000"
+        apiBaseUrl="http://localhost:8000"
         showUseInPanelButton={false} // Hide the "Use in Selected Panel" button
       />
     </div>

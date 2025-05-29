@@ -1,7 +1,7 @@
 // frontend/config.ts
 
 // For local development
-const DEFAULT_API_URL = 'http://localhost:5000';
+const DEFAULT_API_URL = 'http://localhost:8000';
 
 // Environment-aware configuration
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;

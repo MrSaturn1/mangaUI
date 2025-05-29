@@ -1,4 +1,4 @@
-// mangaui/frontend/src/components/InitializeModels.tsx
+// mangaui/frontend/components/InitializeModels.tsx
 import React, { useState } from 'react';
 import { API_ENDPOINT } from '../config';
 

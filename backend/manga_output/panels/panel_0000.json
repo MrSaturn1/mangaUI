@@ -1,24 +1,34 @@
 {
   "setting": "",
   "characters": [
-    "RAT"
+    "Z"
   ],
   "elements": [
     {
-      "type": "action",
-      "text": "Deep in the undergrowth, ferns shake and a RAT emerges",
+      "type": "dialogue",
+      "character": "Z",
+      "dialogue": "Whew!",
       "characters_present": [
-        "RAT"
+        "Z"
       ]
     }
   ],
   "scene_index": 0,
-  "prompt": "A black and white manga panel with screen tone showing  RAT who is A normal sized rat. Furry, whiskers, sniffing. Deep in the undergrowth, ferns shake and a RAT emerges",
-  "seed": 664786,
-  "width": 720,
-  "height": 723,
-  "gen_width": 504,
-  "gen_height": 512,
-  "characters_with_embeddings": [],
-  "text_boxes_count": 0
-}
+  "text_bboxes": [
+    [
+      0.06018518518518518,
+      0.05069124423963134,
+      0.4074074074074074,
+      0.34101382488479265
+    ]
+  ],
+  "character_bboxes": [
+    [
+      0.07037037037037035,
+      0.3843317972350231,
+      0.6703703703703703,
+      0.9843317972350231
+    ]
+  ],
+  "reference_embeddings": [
+    

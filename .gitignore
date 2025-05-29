@@ -21,6 +21,8 @@
 /backend/character_output/character_embeddings/*.pt
 /backend/character_output/character_images/keepers/*.png
 /backend/manga_output/**/*.png
+/backend/manga_projects/*
+!/backend/manga_projects/
 
 # Build artifacts
 **/dist/

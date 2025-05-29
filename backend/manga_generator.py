@@ -833,9 +833,6 @@ class MangaGenerator:
         character_bboxes = []
         reference_embeddings = []
         
-        # Extract dialogue elements to keep the dialogue text content
-        dialogue_elements = [elem for elem in elements if elem['type'] == 'dialogue']
-        
         # Check if there are explicit text boxes defined
         if 'textBoxes' in panel_data and panel_data['textBoxes'] and len(panel_data['textBoxes']) > 0:
             # Use the explicit text boxes from the panel data
@@ -847,8 +844,6 @@ class MangaGenerator:
                     text_box['x'] + text_box['width'], 
                     text_box['y'] + text_box['height']
                 ])
-        # IMPORTANT: We're not adding default text boxes if none are defined
-        # This way the model won't display text bubbles when you don't want them
         
         # Add character embeddings from keepers
         for character_name in characters:
@@ -880,7 +875,7 @@ class MangaGenerator:
         # Always wrap in batch format for consistent API
         return [text_bboxes], [character_bboxes], [reference_embeddings]
 
-    def generate_panel(self, panel_data, panel_index, seed=None, width=None, height=None, project_id='default'):
+    def generate_panel(self, panel_data, panel_index, seed=None, width=None, height=None, project_id='default', ip_params=None):
         """
         Generate a manga panel based on panel data with proper dimension handling.
         
@@ -891,13 +886,21 @@ class MangaGenerator:
             width (int, optional): Requested panel width from UI
             height (int, optional): Requested panel height from UI
             project_id (str, optional): Project ID for organization
+            ip_params (dict, optional): Parameters for the IPAdapter including text_bboxes, character_bboxes, and reference_embeddings
         
         Returns:
             tuple: (output_path, panel_data) - Path to saved image and panel data
         """
-        # Create project-specific output directory
-        project_panels_dir = self.output_dir / "projects" / f"project_{project_id}" / "panels"
-        project_panels_dir.mkdir(parents=True, exist_ok=True)
+        # Determine output path based on project_id
+        if project_id != 'default':
+            # UI-based generation - save to manga_projects
+            output_base = Path("manga_projects") / project_id / "panels"
+            output_base.mkdir(parents=True, exist_ok=True)
+            output_path = output_base / f"panel_{panel_index:04d}.png"
+        else:
+            # Command-line/batch generation - save to self.panels_dir (manga_output/panels)
+            self.panels_dir.mkdir(parents=True, exist_ok=True)
+            output_path = self.panels_dir / f"panel_{panel_index:04d}.png"
 
         # Create a specific prompt for this panel
         prompt = self.create_panel_prompt(panel_data)
@@ -911,7 +914,22 @@ class MangaGenerator:
             generator = torch.Generator(device=self.device).manual_seed(seed)
         
         # Prepare inputs for IPAdapter
-        text_bboxes, character_bboxes, reference_embeddings = self.prepare_ip_adapter_inputs(panel_data)
+        # Use IP params if provided, otherwise prepare them from panel data
+        if ip_params is not None:
+            text_bboxes = ip_params.get('text_bboxes', [])
+            character_bboxes = ip_params.get('character_bboxes', [])
+            reference_embeddings = ip_params.get('reference_embeddings', [])
+            
+            # Ensure they're properly wrapped for batch processing
+            if text_bboxes and not isinstance(text_bboxes[0], list):
+                text_bboxes = [text_bboxes]
+            if character_bboxes and not isinstance(character_bboxes[0], list):
+                character_bboxes = [character_bboxes]
+            if reference_embeddings and not isinstance(reference_embeddings[0], list):
+                reference_embeddings = [reference_embeddings]
+        else:
+            # Prepare inputs for IPAdapter from panel data
+            text_bboxes, character_bboxes, reference_embeddings = self.prepare_ip_adapter_inputs(panel_data)
         
         # Use provided dimensions or default to 512x512 if none specified
         if width is None or height is None:
@@ -923,6 +941,7 @@ class MangaGenerator:
         
         print(f"Generating panel {panel_index}: {prompt[:100]}...")
         print(f"Panel dimensions: {width}x{height} (requested), {gen_width}x{gen_height} (generation)")
+        print(f"Output path: {output_path}")
         
         # Report what we're using
         char_count = len(character_bboxes[0]) if character_bboxes and character_bboxes[0] else 0
@@ -949,7 +968,7 @@ class MangaGenerator:
             # Upscale to requested dimensions if necessary
             if gen_width != width or gen_height != height:
                 image = self.upscale_panel_image(image, width, height)
-            
+                
         except Exception as e:
             print(f"Error during generation: {e}")
             print("Trying with smaller resolution...")
@@ -985,28 +1004,29 @@ class MangaGenerator:
                 draw.text((width//2-100, height//2), "Generation error", fill='black')
         
         # Save the image
-        output_path = self.panels_dir / f"panel_{panel_index:04d}.png"
         image.save(output_path)
         
-        # Save panel data alongside the image for reference
-        panel_info_path = self.panels_dir / f"panel_{panel_index:04d}.json"
-        with open(panel_info_path, 'w') as f:
-            # Convert set to list for JSON serialization
-            panel_data_json = panel_data.copy()
-            panel_data_json['characters'] = list(panel_data_json['characters'])
-            panel_data_json['prompt'] = prompt
-            panel_data_json['seed'] = seed
-            panel_data_json['width'] = width
-            panel_data_json['height'] = height
-            panel_data_json['gen_width'] = gen_width
-            panel_data_json['gen_height'] = gen_height
-            panel_data_json['project_id'] = project_id
-            characters = list(panel_data['characters'])
-            panel_data_json['characters_with_embeddings'] = [
-                character for character in characters if self.get_character_embedding(character) is not None
-            ]
-            panel_data_json['text_boxes_count'] = text_count
-            json.dump(panel_data_json, f, indent=2)
+        # Only save panel metadata for command-line generation
+        if project_id == 'default':
+            # Save panel data alongside the image for reference
+            panel_info_path = self.panels_dir / f"panel_{panel_index:04d}.json"
+            with open(panel_info_path, 'w') as f:
+                # Convert set to list for JSON serialization
+                panel_data_json = panel_data.copy()
+                panel_data_json['characters'] = list(panel_data_json['characters'])
+                panel_data_json['prompt'] = prompt
+                panel_data_json['seed'] = seed
+                panel_data_json['width'] = width
+                panel_data_json['height'] = height
+                panel_data_json['gen_width'] = gen_width
+                panel_data_json['gen_height'] = gen_height
+                panel_data_json['project_id'] = project_id
+                characters = list(panel_data['characters'])
+                panel_data_json['characters_with_embeddings'] = [
+                    character for character in characters if self.get_character_embedding(character) is not None
+                ]
+                panel_data_json['text_boxes_count'] = text_count
+                json.dump(panel_data_json, f, indent=2)
         
         return output_path, panel_data
     

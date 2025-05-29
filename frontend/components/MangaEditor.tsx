@@ -1,6 +1,6 @@
 // components/MangaEditor.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Line } from 'react-konva';
+import { Stage, Layer, Rect, Image as KonvaImage, Transformer, Line, Group } from 'react-konva';
 import { KonvaEventObject } from 'konva/lib/Node';
 import { saveAs } from 'file-saver';
 import { PageTemplate, pageTemplates } from '../utils/pageTemplates';
@@ -20,7 +20,8 @@ import {
   Download,
   Layout,
   Square,
-  MessageSquare
+  MessageSquare,
+  X
 } from 'lucide-react';
 import ModeStatusBar from './ModeStatusBar';
 import PanelAdjustmentHandles from './PanelAdjustmentHandles';
@@ -62,29 +63,38 @@ export interface Panel {
   setting?: string;
   seed?: number;
   panelIndex?: number;
-  characterNames: string[];
-  characterPositions: Position[];
-  dialogues: DialogueItem[];
-  dialoguePositions: Position[];
-  actions: ActionItem[];
   isGenerating?: boolean;
   generationQueued?: boolean;
   queueMessage?: string;
+  
+  // Characters should remain as separate arrays as they might be 
+  // needed independently by the character management system
+  characterNames: string[];  // Keep for character identification
+  
+  // Character boxes for positioning with drawing capability
   characterBoxes?: {
-    character: string;
-    x: number;
+    character: string;    // Must match a name in characterNames
+    x: number;           // Relative coordinates (0-1)
     y: number;
     width: number;
     height: number;
-    color: string; // For different colors per character
+    color: string;       // For UI display
   }[];
+  
+  // Text boxes for dialogue
   textBoxes?: {
-    text: string;
-    x: number;
+    text: string;        // The content of the text/dialogue
+    x: number;           // Relative coordinates (0-1)
     y: number;
     width: number;
     height: number;
   }[];
+  
+  // Keep dialogues as they provide structure for character attribution
+  dialogues: DialogueItem[];  // {character: string, text: string}
+  
+  // Actions for scene descriptions
+  actions: ActionItem[];      // {text: string}
 }
 
 export interface Page {
@@ -151,6 +161,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     character?: string;
     color?: string;
   } | null>(null);
+  // Panel Focus Mode
+  const [isPanelFocusMode, setIsPanelFocusMode] = useState<boolean>(false);
+  const [focusedPanelId, setFocusedPanelId] = useState<string | null>(null);
+  const [focusScale, setFocusScale] = useState<number>(1.0); // Scale for focused panel
+  const focusedPanel = isPanelFocusMode && focusedPanelId ? 
+    panels.find(p => p.id === focusedPanelId) : null;
+  const currentScale = isPanelFocusMode ? focusScale : scale;
 
   // Character and Text Boxes
   const [isDrawingCharacterBox, setIsDrawingCharacterBox] = useState<boolean>(false);
@@ -202,6 +219,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   const [statusType, setStatusType] = useState<'success' | 'error' | 'info' | 'loading'>('info');
   const [showStatus, setShowStatus] = useState<boolean>(false);
   const [statusTimeout, setStatusTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  
 
   // Initialize localPages from the props pages and sync them
   useEffect(() => {
@@ -265,16 +284,20 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   // Add this effect to handle transformer for selected boxes
   useEffect(() => {
     if (selectedBoxType && selectedBoxIndex !== null && transformerBoxRef.current && stageRef.current) {
-      const node = stageRef.current.findOne(`.${selectedBoxType}-box-${selectedBoxIndex}`);
-      if (node) {
-        transformerBoxRef.current.nodes([node]);
-        transformerBoxRef.current.getLayer().batchDraw();
+      // Find the specific box node - need to target the right panel first
+      const panelBoxes = stageRef.current.findOne(`#panel-boxes-${selectedPanelId}`);
+      if (panelBoxes) {
+        const node = panelBoxes.findOne(`.${selectedBoxType}-box-${selectedBoxIndex}`);
+        if (node) {
+          transformerBoxRef.current.nodes([node]);
+          transformerBoxRef.current.getLayer().batchDraw();
+        }
       }
     } else if (transformerBoxRef.current) {
       transformerBoxRef.current.nodes([]);
       transformerBoxRef.current.getLayer().batchDraw();
     }
-  }, [selectedBoxType, selectedBoxIndex]);
+  }, [selectedBoxType, selectedBoxIndex, selectedPanelId]);
 
   // Add keyboard handling for delete key when a box is selected
   useEffect(() => {
@@ -347,7 +370,22 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     // Clean up
     return () => clearInterval(autoSaveInterval);
-  }, [hasUnsavedChanges, currentProject]);
+  }, [hasUnsavedChanges, currentProject, localPages]);
+
+  // Add keyboard shortcut to exit focus mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to exit focus mode
+      if (e.key === 'Escape' && isPanelFocusMode) {
+        exitPanelFocusMode();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isPanelFocusMode]);
 
   // Add beforeunload handler to warn about unsaved changes
   useEffect(() => {
@@ -538,11 +576,12 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       width: 400,
       height: 400,
       characterNames: [],
-      characterPositions: [],
       dialogues: [],
-      dialoguePositions: [],
       actions: [],
-      panelIndex: panels.length
+      panelIndex: panels.length,
+      // Initialize empty arrays for our box fields
+      characterBoxes: [],
+      textBoxes: []
     };
     
     updatePanelsForCurrentPage([...panels, newPanel]);
@@ -902,6 +941,47 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setSelectedBoxIndex(null);
   };
 
+  // Add double-click handler for panels
+  const handlePanelDoubleClick = (panelId: string) => {
+    if (isPanelFocusMode && focusedPanelId === panelId) {
+      // Exit focus mode if double-clicking the focused panel
+      exitPanelFocusMode();
+    } else {
+      // Enter focus mode for this panel - ALWAYS update both states
+      setSelectedPanelId(panelId); // Set as selected first
+      enterPanelFocusMode(panelId);
+    }
+  };
+
+  // Function to enter panel focus mode
+  const enterPanelFocusMode = (panelId: string) => {
+    const panel = panels.find(p => p.id === panelId);
+    if (!panel) return;
+    
+    // Update states in correct order
+    setFocusedPanelId(panelId);
+    setSelectedPanelId(panelId);
+    setIsPanelFocusMode(true);
+    
+    // Calculate optimal scale to fit panel in available viewport
+    // Account for: header (64px), padding (64px), exit button space (64px)
+    const availableWidth = window.innerWidth * 0.6 - 64; // Account for sidebar and padding
+    const availableHeight = window.innerHeight - 192; // Account for header, padding, and button space
+    
+    const scaleX = availableWidth / panel.width;
+    const scaleY = availableHeight / panel.height;
+    const optimalScale = Math.min(scaleX, scaleY, 1.5); // Cap at 1.5x zoom
+    
+    setFocusScale(Math.max(0.3, optimalScale)); // At least 0.3x zoom
+  };
+
+  // Function to exit panel focus mode
+  const exitPanelFocusMode = () => {
+    setIsPanelFocusMode(false);
+    setFocusedPanelId(null);
+    setFocusScale(1.0);
+  };
+
   // Zoom control functions
   const handleZoomIn = () => {
     setScale(prevScale => Math.min(prevScale + 0.1, 1.0));
@@ -922,35 +1002,81 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
     if (panelIndex === -1) return;
     
-    // Check if character is already in the panel
-    if (panels[panelIndex].characterNames.includes(character.name)) return;
-    
-    // Add the character to the panel
     const updatedPanels = [...panels];
-    const totalChars = updatedPanels[panelIndex].characterNames.length;
+    const panel = updatedPanels[panelIndex];
     
-    // Create a default position for the character
-    let defaultPosition: Position;
+    // Check if character is already in the panel
+    if (panel.characterNames.includes(character.name)) return;
     
-    if (totalChars === 0) {
-      // Single character in center
-      defaultPosition = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
-    } else if (totalChars === 1) {
-      // Two characters side by side
-      defaultPosition = { x: 0.55, y: 0.2, width: 0.35, height: 0.6 };
-      // Also update the first character's position
-      updatedPanels[panelIndex].characterPositions[0] = { x: 0.1, y: 0.2, width: 0.35, height: 0.6 };
-    } else {
-      // Multiple characters - spread evenly
-      const section = 1.0 / (totalChars + 1);
-      defaultPosition = { x: section * totalChars, y: 0.2, width: section, height: 0.6 };
+    // Add to characterNames array
+    panel.characterNames.push(character.name);
+    
+    // Check if character already has a box
+    const existingBox = panel.characterBoxes?.find(box => box.character === character.name);
+    
+    if (!existingBox) {
+      // Initialize characterBoxes array if it doesn't exist
+      if (!panel.characterBoxes) {
+        panel.characterBoxes = [];
+      }
+      
+      // Get the color for visualization
+      const characterColor = getCharacterColor(character.name);
+      
+      // Determine position based on existing characters
+      const totalChars = panel.characterBoxes.length;
+      
+      let defaultX, defaultY, defaultWidth, defaultHeight;
+      
+      if (totalChars === 0) {
+        // Single character in center
+        defaultX = 0.2;
+        defaultY = 0.2;
+        defaultWidth = 0.6;
+        defaultHeight = 0.6;
+      } else if (totalChars === 1) {
+        // Two characters side by side
+        defaultX = 0.55;
+        defaultY = 0.2;
+        defaultWidth = 0.35;
+        defaultHeight = 0.6;
+        
+        // Also update the first character's position
+        panel.characterBoxes[0] = {
+          ...panel.characterBoxes[0],
+          x: 0.1,
+          y: 0.2,
+          width: 0.35,
+          height: 0.6
+        };
+      } else {
+        // Multiple characters - spread evenly
+        const section = 1.0 / (totalChars + 1);
+        defaultX = section * totalChars;
+        defaultY = 0.2;
+        defaultWidth = Math.min(section, 0.3);
+        defaultHeight = 0.6;
+      }
+      
+      // Add the character box
+      panel.characterBoxes.push({
+        character: character.name,
+        x: defaultX,
+        y: defaultY,
+        width: defaultWidth,
+        height: defaultHeight,
+        color: characterColor
+      });
+      
+      // AUTO-SELECT THE NEW CHARACTER BOX
+      const newBoxIndex = panel.characterBoxes.length - 1;
+      setSelectedBoxType('character');
+      setSelectedBoxIndex(newBoxIndex);
+      setPanelMode('adjust'); // Ensure we're in adjust mode
     }
     
-    updatedPanels[panelIndex].characterNames.push(character.name);
-    updatedPanels[panelIndex].characterPositions.push(defaultPosition);
-    
     updatePanelsForCurrentPage(updatedPanels);
-  };
+  };  
   
   // Handler for removing a character from the selected panel
   const handleRemoveCharacter = (index: number) => {
@@ -961,8 +1087,17 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     // Remove the character
     const updatedPanels = [...panels];
+    const charName = updatedPanels[panelIndex].characterNames[index];
+    
+    // Remove from characterNames array
     updatedPanels[panelIndex].characterNames.splice(index, 1);
-    updatedPanels[panelIndex].characterPositions.splice(index, 1);
+    
+    // Also remove from characterBoxes array
+    if (updatedPanels[panelIndex].characterBoxes) {
+      updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter(
+        box => box.character !== charName
+      );
+    }
     
     updatePanelsForCurrentPage(updatedPanels);
   };
@@ -977,24 +1112,62 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     // Add a new dialogue
     const updatedPanels = [...panels];
     const dialogues = updatedPanels[panelIndex].dialogues;
-    const dialoguePositions = updatedPanels[panelIndex].dialoguePositions;
     
     // Create a default position for the dialogue
-    let defaultPosition: Position;
+    let defaultX, defaultY, defaultWidth, defaultHeight;
     
     if (dialogues.length === 0) {
       // Top right
-      defaultPosition = { x: 0.6, y: 0.1, width: 0.3, height: 0.2 };
+      defaultX = 0.6;
+      defaultY = 0.1;
+      defaultWidth = 0.3;
+      defaultHeight = 0.2;
     } else if (dialogues.length === 1) {
       // Middle left
-      defaultPosition = { x: 0.1, y: 0.4, width: 0.3, height: 0.2 };
+      defaultX = 0.1;
+      defaultY = 0.4;
+      defaultWidth = 0.3;
+      defaultHeight = 0.2;
     } else {
       // Bottom right
-      defaultPosition = { x: 0.6, y: 0.7, width: 0.3, height: 0.2 };
+      defaultX = 0.6;
+      defaultY = 0.7;
+      defaultWidth = 0.3;
+      defaultHeight = 0.2;
     }
     
+    // Add to dialogues array
     updatedPanels[panelIndex].dialogues.push({ character: '', text: '' });
-    updatedPanels[panelIndex].dialoguePositions.push(defaultPosition);
+    
+    // Also add to textBoxes array
+    updatedPanels[panelIndex].textBoxes = [
+      ...(updatedPanels[panelIndex].textBoxes || []),
+      {
+        text: '',
+        x: defaultX,
+        y: defaultY,
+        width: defaultWidth,
+        height: defaultHeight
+      }
+    ];
+    
+    updatePanelsForCurrentPage(updatedPanels);
+  };
+
+  const handleRemoveDialogue = (index: number) => {
+    if (!selectedPanelId) return;
+    
+    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+    if (panelIndex === -1) return;
+    
+    // Remove the dialogue
+    const updatedPanels = [...panels];
+    updatedPanels[panelIndex].dialogues.splice(index, 1);
+    
+    // Also remove from textBoxes array
+    if (updatedPanels[panelIndex].textBoxes) {
+      updatedPanels[panelIndex].textBoxes.splice(index, 1);
+    }
     
     updatePanelsForCurrentPage(updatedPanels);
   };
@@ -1010,20 +1183,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const updatedPanels = [...panels];
     updatedPanels[panelIndex].dialogues[index][field] = value;
     
-    updatePanelsForCurrentPage(updatedPanels);
-  };
-  
-  // Handler for removing dialogue from the selected panel
-  const handleRemoveDialogue = (index: number) => {
-    if (!selectedPanelId) return;
-    
-    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-    if (panelIndex === -1) return;
-    
-    // Remove the dialogue
-    const updatedPanels = [...panels];
-    updatedPanels[panelIndex].dialogues.splice(index, 1);
-    updatedPanels[panelIndex].dialoguePositions.splice(index, 1);
+    // Also update the corresponding textBox if it exists
+    if (updatedPanels[panelIndex].textBoxes && 
+        updatedPanels[panelIndex].textBoxes[index]) {
+      if (field === 'text') {
+        updatedPanels[panelIndex].textBoxes[index].text = value;
+      }
+    }
     
     updatePanelsForCurrentPage(updatedPanels);
   };
@@ -1307,8 +1473,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     }
   };
 
-  // Update saveToProject with status indicator
-  const saveToProject = () => {
+
+  // Update saveToProject function to properly save to backend
+  const saveToProject = async () => {
     if (!currentProject) return;
     
     showStatusMessage('Saving project...', 'loading');
@@ -1326,24 +1493,34 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         setCurrentProject(updatedProject);
       }
       
-      // Strip imageData for saving to reduce storage size
-      const pagesForSaving = localPages.map(page => ({
-        ...page,
-        panels: page.panels.map(panel => ({
-          ...panel,
-          imageData: undefined // Remove image data, keep only paths
-        }))
-      }));
+      // Save to backend with full panel data
+      const response = await fetch(`${apiEndpoint}/projects/${currentProject.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          pages: localPages // Send full pages with panel data
+        })
+      });
       
-      // Save to localStorage first (immediate)
-      localStorage.setItem(`project_${currentProject.id}`, JSON.stringify(pagesForSaving));
-      
-      // Call onSaveProject callback with the stripped data
-      if (onSaveProject) {
-        onSaveProject(currentProject.id, pagesForSaving);
+      if (response.ok) {
+        const data = await response.json();
+        showStatusMessage(data.message || 'Project saved successfully', 'success');
+        setHasUnsavedChanges(false);
+        setLastSaveTime(new Date());
+      } else {
+        throw new Error('Failed to save project');
       }
       
-      showStatusMessage('Project saved successfully', 'success');
+      // Also save to localStorage as backup
+      localStorage.setItem(`project_${currentProject.id}`, JSON.stringify(localPages));
+      
+      // Call onSaveProject callback
+      if (onSaveProject) {
+        onSaveProject(currentProject.id, localPages);
+      }
+      
     } catch (error) {
       console.error('Error saving project:', error);
       showStatusMessage('Error saving project', 'error');
@@ -1352,7 +1529,12 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     }
   };
 
-  // Update handleGeneratePanel with better error handling
+  const handleManualSave = () => {
+    if (currentProject) {
+      saveToProject();
+    }
+  };
+
   const handleGeneratePanel = async () => {
     if (!selectedPanelId) return;
     
@@ -1367,29 +1549,49 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     showStatusMessage('Generating panel...', 'loading');
     
     try {
-      // Prepare the data for the API
       const panel = panels[panelIndex];
       
       // Convert panel dimensions from model coordinates to absolute pixel values
       const pixelWidth = Math.round(panel.width);
       const pixelHeight = Math.round(panel.height);
       
+      // Format character boxes in the way the API expects
+      // The API expects arrays of [x, y, x+width, y+height] for bounding boxes
+      const formattedCharacterBoxes = panel.characterBoxes?.map(box => ({
+        character: box.character,
+        x: box.x,
+        y: box.y,
+        width: box.width, 
+        height: box.height,
+        color: box.color
+      })) || [];
+      
+      // Format text boxes in the way the API expects
+      const formattedTextBoxes = panel.textBoxes?.map(box => ({
+        text: box.text,
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height
+      })) || [];
+      
+      // Prepare the API data using snake_case for backend and camelCase for frontend
       const apiData = {
-        projectId: currentProject?.id || 'default', // Add project ID
+        projectId: currentProject?.id || 'default',
         prompt: panel.prompt || '',
         setting: panel.setting || '',
-        dialoguePositions: panel.dialoguePositions,
-        characterPositions: panel.characterPositions,
         characterNames: panel.characterNames,
         dialogues: panel.dialogues,
         actions: panel.actions,
-        characterBoxes: panel.characterBoxes || [], // Include character boxes
-        textBoxes: panel.textBoxes || [],  
+        characterBoxes: formattedCharacterBoxes,
+        textBoxes: formattedTextBoxes,
         panelIndex: panel.panelIndex || 0,
         seed: panel.seed || Math.floor(Math.random() * 1000000),
         width: pixelWidth,
         height: pixelHeight
       };
+      
+      console.log("Sending panel data to API:", apiData);
       
       // Call the API
       const response = await fetch(`${apiEndpoint}/generate_panel`, {
@@ -2375,6 +2577,16 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         >
           <FileDown size={20} />
         </button>
+
+        {/* Save Project */}
+        <button
+          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
+          onClick={handleManualSave}
+          title="Save Project"
+          disabled={isSaving || !hasUnsavedChanges}
+        >
+          <Save size={20} />
+        </button>
         
         {/* Project Manager button */}
         <button
@@ -2483,16 +2695,43 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
           <div className="flex-1 bg-white overflow-auto">
             
             <div 
-              className="min-h-full min-w-full flex items-center justify-center p-8 pb-24"
+              className="min-h-full min-w-full flex items-center justify-center"
               style={{
-                width: pageSize.width * scale + 100,
-                height: pageSize.height * scale + 150
+                // Dynamic sizing based on focus mode
+                width: isPanelFocusMode && focusedPanel 
+                  ? Math.max(window.innerWidth * 0.6, focusedPanel.width * focusScale + 128)
+                  : pageSize.width * scale + 100,
+                height: isPanelFocusMode && focusedPanel
+                  ? Math.max(window.innerHeight - 128, focusedPanel.height * focusScale + 128) 
+                  : pageSize.height * scale + 150,
+                padding: isPanelFocusMode ? '32px' : '32px 32px 96px 32px' // Less bottom padding in focus mode
               }}
             >
               <div className="relative">
+                {/* Exit button - positioned better for focus mode */}
+                {isPanelFocusMode && focusedPanel && (
+                  <button
+                    onClick={exitPanelFocusMode}
+                    className="absolute bg-none hover:bg-indigo-100 text-white rounded-full p-3 shadow-lg transition-colors duration-200 z-50 group"
+                    style={{
+                      // Position in top-left of container, not relative to panel
+                      left: -48,
+                      top: -32,
+                    }}
+                    title="Exit Focus Mode (ESC)"
+                  >
+                    <X size={16} />
+                    
+                    {/* Tooltip - shows on hover */}
+                    <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-100 text-white text-sm px-3 py-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+                      Exit Focus Mode (ESC)
+                    </div>
+                  </button>
+                )}
+
                 <Stage 
-                  width={pageSize.width * scale} 
-                  height={pageSize.height * scale}
+                  width={isPanelFocusMode && focusedPanel ? focusedPanel.width * focusScale : pageSize.width * scale} 
+                  height={isPanelFocusMode && focusedPanel ? focusedPanel.height * focusScale : pageSize.height * scale}
                   ref={stageRef}
                   className={`bg-gray-100 shadow-inner border border-gray-300 ${
                     !selectedPanel ? 'cursor-default' :
@@ -2506,76 +2745,76 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                   onMouseUp={handleStageMouseUp}
                 >
                   <Layer>
-                    {/* Page background */}
-                    <Rect
-                      width={pageSize.width * scale}
-                      height={pageSize.height * scale}
-                      fill="white"
-                    />
+                    {/* Page background - only show in normal mode */}
+                    {!isPanelFocusMode && (
+                      <Rect
+                        width={pageSize.width * scale}
+                        height={pageSize.height * scale}
+                        fill="white"
+                      />
+                    )}
+                    
+                    {/* In focus mode, show white background for the focused panel */}
+                    {isPanelFocusMode && focusedPanel && (
+                      <Rect
+                        width={focusedPanel.width * focusScale}
+                        height={focusedPanel.height * focusScale}
+                        fill="white"
+                      />
+                    )}
                     
                     {/* Panels */}
-                    {panels.map((panel) => (
-                      <Rect
-                        key={panel.id}
-                        id={panel.id}
-                        x={panel.x * scale}
-                        y={panel.y * scale}
-                        width={panel.width * scale}
-                        height={panel.height * scale}
-                        stroke={selectedPanelId === panel.id ? '#4299e1' : '#000'}
-                        strokeWidth={selectedPanelId === panel.id ? 2 : 1}
-                        fill={panel.imageData ? 'transparent' : '#f7fafc'}
-                        onClick={() => handlePanelSelect(panel.id)}
-                        onTap={() => handlePanelSelect(panel.id)}
-                        draggable={selectedPanelId === panel.id && panelMode === 'adjust'}
-                        onDragMove={handleDragMove}
-                        onDragEnd={handleDragEnd}
-                      />
-                    ))}
-    
-                    {panels.map(panel => (
-                      <React.Fragment key={`boxes-${panel.id}`}>
-                        {/* Character boxes */}
-                        {panel.characterBoxes?.map((box, index) => (
-                          <Rect
-                            key={`char-box-${panel.id}-${index}`}
-                            x={(panel.x + box.x * panel.width) * scale}
-                            y={(panel.y + box.y * panel.height) * scale}
-                            width={box.width * panel.width * scale}
-                            height={box.height * panel.height * scale}
-                            stroke={box.color}
-                            strokeWidth={2}
-                            dash={[5, 5]}
-                            fill={box.color + '33'} // Add transparency
-                          />
-                        ))}
-                        
-                        {/* Text boxes */}
-                        {panel.textBoxes?.map((box, index) => (
-                          <Rect
-                            key={`text-box-${panel.id}-${index}`}
-                            x={(panel.x + box.x * panel.width) * scale}
-                            y={(panel.y + box.y * panel.height) * scale}
-                            width={box.width * panel.width * scale}
-                            height={box.height * panel.height * scale}
-                            stroke="#000000"
-                            strokeWidth={2}
-                            dash={[5, 5]}
-                            fill="#FFFFFF88" // Semi-transparent white
-                          />
-                        ))}
-                      </React.Fragment>
-                    ))}
+                    {panels.map((panel) => {
+                      // In focus mode, only show the focused panel
+                      if (isPanelFocusMode && panel.id !== focusedPanelId) {
+                        return null;
+                      }
+                      
+                      // Calculate position - in focus mode, center the panel at origin
+                      const panelX = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.x;
+                      const panelY = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.y;
+                      
+                      return (
+                        <Rect
+                          key={panel.id}
+                          id={panel.id}
+                          x={panelX * currentScale}
+                          y={panelY * currentScale}
+                          width={panel.width * currentScale}
+                          height={panel.height * currentScale}
+                          stroke={selectedPanelId === panel.id ? '#4299e1' : '#000'}
+                          strokeWidth={selectedPanelId === panel.id ? 3 : 2}
+                          fill={panel.imageData ? 'transparent' : '#f7fafc'}
+                          onClick={() => handlePanelSelect(panel.id)}
+                          onDblClick={() => handlePanelDoubleClick(panel.id)}
+                          onTap={() => handlePanelSelect(panel.id)}
+                          onDblTap={() => handlePanelDoubleClick(panel.id)}
+                          draggable={selectedPanelId === panel.id && panelMode === 'adjust' && !isPanelFocusMode}
+                          onDragMove={handleDragMove}
+                          onDragEnd={handleDragEnd}
+                        />
+                      );
+                    })}
                     
                     {/* Panel images */}
-                    {panels.map((panel) => (
-                      panel.imageData && (
+                    {panels.map((panel) => {
+                      // In focus mode, only show the focused panel's image
+                      if (isPanelFocusMode && panel.id !== focusedPanelId) {
+                        return null;
+                      }
+                      
+                      if (!panel.imageData) return null;
+                      
+                      const panelX = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.x;
+                      const panelY = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.y;
+                      
+                      return (
                         <KonvaImage
                           key={`img-${panel.id}`}
-                          x={panel.x * scale}
-                          y={panel.y * scale}
-                          width={panel.width * scale}
-                          height={panel.height * scale}
+                          x={panelX * currentScale}
+                          y={panelY * currentScale}
+                          width={panel.width * currentScale}
+                          height={panel.height * currentScale}
                           image={(() => {
                             const img = new window.Image();
                             img.src = panel.imageData;
@@ -2584,14 +2823,100 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                           onClick={() => handlePanelSelect(panel.id)}
                           onTap={() => handlePanelSelect(panel.id)}
                         />
-                      )
-                    ))}
+                      );
+                    })}
+
+                    {/* Character and Text boxes */}
+                    {panels.map(panel => {
+                      // In focus mode, only show boxes for the focused panel
+                      if (isPanelFocusMode && panel.id !== focusedPanelId) {
+                        return null;
+                      }
+                      
+                      const panelX = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.x;
+                      const panelY = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.y;
+                      
+                      return (
+                        <Group key={`panel-boxes-${panel.id}`} id={`panel-boxes-${panel.id}`}>
+                          {/* Character boxes */}
+                          {panel.characterBoxes?.map((box, index) => (
+                            <Rect
+                              key={`char-box-${panel.id}-${index}`}
+                              name={`character-box-${index}`}
+                              x={(panelX + box.x * panel.width) * currentScale}
+                              y={(panelY + box.y * panel.height) * currentScale}
+                              width={box.width * panel.width * currentScale}
+                              height={box.height * panel.height * currentScale}
+                              stroke={box.color}
+                              strokeWidth={selectedBoxType === 'character' && selectedBoxIndex === index && panel.id === selectedPanelId ? 3 : 2}
+                              dash={[5, 5]}
+                              fill={box.color + '33'}
+                              draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
+                              onClick={() => {
+                                if (panel.id === selectedPanelId) {
+                                  handleBoxSelect('character', index);
+                                }
+                              }}
+                              onTap={() => {
+                                if (panel.id === selectedPanelId) {
+                                  handleBoxSelect('character', index);
+                                }
+                              }}
+                              onDragEnd={(e) => handleBoxDragEnd(e, 'character', index)}
+                              onTransformEnd={(e) => handleBoxTransformEnd(e, 'character', index)}
+                            />
+                          ))}
+                        
+                          {/* Text boxes */}
+                          {panel.textBoxes?.map((box, index) => (
+                            <Rect
+                              key={`text-box-${panel.id}-${index}`}
+                              name={`text-box-${index}`}
+                              x={(panelX + box.x * panel.width) * currentScale}
+                              y={(panelY + box.y * panel.height) * currentScale}
+                              width={box.width * panel.width * currentScale}
+                              height={box.height * panel.height * currentScale}
+                              stroke="#000000"
+                              strokeWidth={selectedBoxType === 'text' && selectedBoxIndex === index && panel.id === selectedPanelId ? 3 : 2}
+                              dash={[5, 5]}
+                              fill="#FFFFFF88"
+                              draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
+                              onClick={() => {
+                                if (panel.id === selectedPanelId) {
+                                  handleBoxSelect('text', index);
+                                }
+                              }}
+                              onTap={() => {
+                                if (panel.id === selectedPanelId) {
+                                  handleBoxSelect('text', index);
+                                }
+                              }}
+                              onDragEnd={(e) => handleBoxDragEnd(e, 'text', index)}
+                              onTransformEnd={(e) => handleBoxTransformEnd(e, 'text', index)}
+                            />
+                          ))}
+                        </Group>
+                      );
+                    })}
+                    
+                    {/* Preview box while drawing - only show for selected panel */}
+                    {previewBox && selectedPanel && (!isPanelFocusMode || selectedPanel.id === focusedPanelId) && (
+                      <Rect
+                        x={(selectedPanel.x + previewBox.x * selectedPanel.width) * currentScale}
+                        y={(selectedPanel.y + previewBox.y * selectedPanel.height) * currentScale}
+                        width={previewBox.width * selectedPanel.width * currentScale}
+                        height={previewBox.height * selectedPanel.height * currentScale}
+                        stroke={panelMode === 'character-box' ? (previewBox.color || '#FF5733') : '#000000'}
+                        strokeWidth={2}
+                        dash={[5, 5]}
+                        fill={panelMode === 'character-box' ? (previewBox.color + '33' || '#FF573333') : '#FFFFFF44'}
+                      />
+                    )}
                     
                     {/* Transformer for resizing panels */}
                     <Transformer
                       ref={transformerRef}
                       boundBoxFunc={(oldBox, newBox) => {
-                        // Limit size to prevent tiny panels
                         if (newBox.width < 20 || newBox.height < 20) {
                           return oldBox;
                         }
@@ -2599,7 +2924,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                       }}
                       onTransformEnd={handleTransformEnd}
                       padding={5}
-                      // Enable all anchors for full resizing control
                       enabledAnchors={[
                         'top-left', 'top-center', 'top-right',
                         'middle-left', 'middle-right',
@@ -2607,8 +2931,27 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                       ]}
                       rotateEnabled={false}
                     />
-                    {/* Guide lines */}
-                    {showGuides && guides.x.map((x, i) => (
+                    
+                    {/* Box Transformer */}
+                    <Transformer
+                      ref={transformerBoxRef}
+                      boundBoxFunc={(oldBox, newBox) => {
+                        if (newBox.width < 10 || newBox.height < 10) {
+                          return oldBox;
+                        }
+                        return newBox;
+                      }}
+                      padding={5}
+                      enabledAnchors={[
+                        'top-left', 'top-center', 'top-right',
+                        'middle-left', 'middle-right',
+                        'bottom-left', 'bottom-center', 'bottom-right'
+                      ]}
+                      rotateEnabled={false}
+                    />
+                    
+                    {/* Guide lines - only in normal mode */}
+                    {!isPanelFocusMode && showGuides && guides.x.map((x, i) => (
                       <Line 
                         key={`x-${i}`}
                         points={[x, 0, x, pageSize.height * scale]}
@@ -2617,7 +2960,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                         dash={[5, 5]}
                       />
                     ))}
-                    {showGuides && guides.y.map((y, i) => (
+                    {!isPanelFocusMode && showGuides && guides.y.map((y, i) => (
                       <Line 
                         key={`y-${i}`}
                         points={[0, y, pageSize.width * scale, y]}
@@ -2626,100 +2969,27 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                         dash={[5, 5]}
                       />
                     ))}
-
-                    {/* Preview box while drawing */}
-                    {previewBox && selectedPanel && (
-                      <Rect
-                        x={(selectedPanel.x + previewBox.x * selectedPanel.width) * scale}
-                        y={(selectedPanel.y + previewBox.y * selectedPanel.height) * scale}
-                        width={previewBox.width * selectedPanel.width * scale}
-                        height={previewBox.height * selectedPanel.height * scale}
-                        stroke={panelMode === 'character-box' ? (previewBox.color || '#FF5733') : '#000000'}
-                        strokeWidth={2}
-                        dash={[5, 5]}
-                        fill={panelMode === 'character-box' ? (previewBox.color + '33' || '#FF573333') : '#FFFFFF44'}
-                      />
-                    )}
-
-                    {/* Character boxes */}
-                    {panels.map(panel => (
-                      panel.characterBoxes?.map((box, index) => (
-                        <Rect
-                          key={`char-box-${panel.id}-${index}`}
-                          className={`character-box-${index}`}
-                          x={(panel.x + box.x * panel.width) * scale}
-                          y={(panel.y + box.y * panel.height) * scale}
-                          width={box.width * panel.width * scale}
-                          height={box.height * panel.height * scale}
-                          stroke={box.color}
-                          strokeWidth={selectedBoxType === 'character' && selectedBoxIndex === index ? 3 : 2}
-                          dash={[5, 5]}
-                          fill={box.color + '33'} // Add transparency
-                          draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
-                          onClick={() => panel.id === selectedPanelId && handleBoxSelect('character', index)}
-                          onTap={() => panel.id === selectedPanelId && handleBoxSelect('character', index)}
-                          onDragEnd={(e) => handleBoxDragEnd(e, 'character', index)}
-                          onTransformEnd={(e) => handleBoxTransformEnd(e, 'character', index)}
-                        />
-                      ))
-                    ))}
-
-                    {/* Text boxes */}
-                    {panels.map(panel => (
-                      panel.textBoxes?.map((box, index) => (
-                        <Rect
-                          key={`text-box-${panel.id}-${index}`}
-                          className={`text-box-${index}`}
-                          x={(panel.x + box.x * panel.width) * scale}
-                          y={(panel.y + box.y * panel.height) * scale}
-                          width={box.width * panel.width * scale}
-                          height={box.height * panel.height * scale}
-                          stroke="#000000"
-                          strokeWidth={selectedBoxType === 'text' && selectedBoxIndex === index ? 3 : 2}
-                          dash={[5, 5]}
-                          fill="#FFFFFF88" // Semi-transparent white
-                          draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
-                          onClick={() => panel.id === selectedPanelId && handleBoxSelect('text', index)}
-                          onTap={() => panel.id === selectedPanelId && handleBoxSelect('text', index)}
-                          onDragEnd={(e) => handleBoxDragEnd(e, 'text', index)}
-                          onTransformEnd={(e) => handleBoxTransformEnd(e, 'text', index)}
-                        />
-                      ))
-                    ))}
-
-                    {/* Box Transformer */}
-                    <Transformer
-                      ref={transformerBoxRef}
-                      boundBoxFunc={(oldBox, newBox) => {
-                        // Limit size to prevent tiny boxes
-                        if (newBox.width < 10 || newBox.height < 10) {
-                          return oldBox;
-                        }
-                        return newBox;
-                      }}
-                      padding={5}
-                      // Enable all anchors for full resizing control
-                      enabledAnchors={[
-                        'top-left', 'top-center', 'top-right',
-                        'middle-left', 'middle-right',
-                        'bottom-left', 'bottom-center', 'bottom-right'
-                      ]}
-                      rotateEnabled={false}
-                    />
                   </Layer>
                 </Stage>
-    
+
                 {/* Loading overlay for panel generation */}
-                {panels.map(panel => (
-                  panel.isGenerating && (
+                {panels.map(panel => {
+                  // Only show overlay for generating panels that are visible
+                  if (!panel.isGenerating) return null;
+                  if (isPanelFocusMode && panel.id !== focusedPanelId) return null;
+                  
+                  const panelX = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.x;
+                  const panelY = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.y;
+                  
+                  return (
                     <div 
                       key={`overlay-${panel.id}`}
                       className="absolute bg-black bg-opacity-50 flex justify-center items-center"
                       style={{
-                        left: panel.x * scale,
-                        top: panel.y * scale,
-                        width: panel.width * scale,
-                        height: panel.height * scale
+                        left: panelX * currentScale,
+                        top: panelY * currentScale,
+                        width: panel.width * currentScale,
+                        height: panel.height * currentScale
                       }}
                     >
                       <div className="text-white text-lg">
@@ -2728,18 +2998,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                           : 'Generating...'}
                       </div>
                     </div>
-                  )
-                ))}
+                  );
+                })}
               </div>
-              {/* <div className="absolute bottom-2 left-2 right-2">
-                <ModeStatusBar 
-                  mode={panelMode}
-                  selectedPanel={selectedPanel}
-                  activeCharacter={activeCharacter}
-                  selectedBoxType={selectedBoxType}
-                  selectedBoxIndex={selectedBoxIndex}
-                />
-              </div> */}
             </div>
           </div>
   

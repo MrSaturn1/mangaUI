@@ -29,10 +29,15 @@ export default function Home() {
   const [pages, setPages] = useState<Page[]>([]);
   const [apiEndpoint] = useState(API_ENDPOINT);
 
+  // Add state for tracking loading status
+  const [isLoadingProject, setIsLoadingProject] = useState(true);
+  const [isLoadingCharacters, setIsLoadingCharacters] = useState(false);
 
+  // Separate initialization checks
   useEffect(() => {
-    // Start initialization right away
+    // Start both processes in parallel
     startInitialization();
+    loadProjectData();
     
     // Set up polling for initialization status
     const intervalId = setInterval(() => {
@@ -43,15 +48,10 @@ export default function Home() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Effect to check for projects after characters are loaded
-  useEffect(() => {
-    if (characters.length > 0) {
-      checkForExistingProjects();
-    }
-  }, [characters]);
-
-  // Function to check for existing projects
-  const checkForExistingProjects = async () => {
+  // Load project data immediately, don't wait for models
+  const loadProjectData = async () => {
+    setIsLoadingProject(true);
+    
     try {
       // Try to fetch projects from API
       const response = await fetch(`${apiEndpoint}/projects`);
@@ -60,38 +60,46 @@ export default function Home() {
       if (response.ok && data.status === 'success') {
         if (data.projects && data.projects.length > 0) {
           // Load the first project
-          setCurrentProject(data.projects[0]);
-          const projectPages = await loadProjectPages(data.projects[0].id);
-          setPages(projectPages);
+          const firstProject = data.projects[0];
+          setCurrentProject(firstProject);
+          
+          // Load project pages
+          const projectResponse = await fetch(`${apiEndpoint}/projects/${firstProject.id}`);
+          const projectData = await projectResponse.json();
+          
+          if (projectResponse.ok && projectData.status === 'success') {
+            setPages(projectData.pages || []);
+          }
         } else {
           // No projects exist, create a default one
           await createDefaultProject();
         }
       } else {
-        // API error, try localStorage
-        const localProjects = JSON.parse(localStorage.getItem('mangaProjects') || '[]');
-        if (localProjects.length > 0) {
-          setCurrentProject(localProjects[0]);
-          const projectPages = await loadProjectPages(localProjects[0].id);
-          setPages(projectPages);
-        } else {
-          await createDefaultProject();
-        }
+        // Fallback to localStorage
+        loadProjectsFromLocalStorage();
       }
     } catch (error) {
-      console.error('Error checking projects:', error);
-      // Try localStorage as fallback
-      const localProjects = JSON.parse(localStorage.getItem('mangaProjects') || '[]');
-      if (localProjects.length > 0) {
-        setCurrentProject(localProjects[0]);
-        const projectPages = await loadProjectPages(localProjects[0].id);
-        setPages(projectPages);
-      } else {
-        await createDefaultProject();
-      }
+      console.error('Error loading projects:', error);
+      loadProjectsFromLocalStorage();
+    } finally {
+      setIsLoadingProject(false);
     }
   };
-  
+
+  // Helper function to load from localStorage
+  const loadProjectsFromLocalStorage = () => {
+    const localProjects = JSON.parse(localStorage.getItem('mangaProjects') || '[]');
+    if (localProjects.length > 0) {
+      setCurrentProject(localProjects[0]);
+      const projectPages = JSON.parse(
+        localStorage.getItem(`project_${localProjects[0].id}`) || '[]'
+      );
+      setPages(projectPages);
+    } else {
+      createDefaultProject();
+    }
+  };
+
   // Function to create a default project
   const createDefaultProject = async () => {
     try {
@@ -112,7 +120,11 @@ export default function Home() {
       
       if (response.ok && data.status === 'success' && data.project) {
         setCurrentProject(data.project as Project);
-        setPages([]);
+        // New projects now start with 1 page from the backend
+        setPages([{
+          id: 'page-1',
+          panels: []
+        }]);
       } else {
         throw new Error('API project creation failed');
       }
@@ -122,18 +134,21 @@ export default function Home() {
       const newProject: Project = {
         id: `project-${Date.now()}`,
         name: "Untitled Manga",
-        pages: 0,
+        pages: 1, // Changed from 0 to 1
         lastModified: new Date().toISOString()
       };
       
       const projects = [newProject];
       localStorage.setItem('mangaProjects', JSON.stringify(projects));
       setCurrentProject(newProject);
-      setPages([]);
+      setPages([{
+        id: 'page-1',
+        panels: []
+      }]);
     }
   };
   
-  // Function to load project pages
+  // Function to load project pages (not needed with new approach but keeping for compatibility)
   const loadProjectPages = async (projectId: string): Promise<Page[]> => {
     try {
       // Try to load from API
@@ -168,9 +183,17 @@ export default function Home() {
   };
   
   // Function to handle project selection
-  const handleSelectProject = (project: Project, projectPages: Page[]) => {
+  const handleSelectProject = async (project: Project, projectPages: Page[]) => {
     setCurrentProject(project);
-    setPages(projectPages);
+    
+    // If pages weren't provided, fetch them
+    if (!projectPages || projectPages.length === 0) {
+      const pages = await loadProjectPages(project.id);
+      setPages(pages);
+    } else {
+      setPages(projectPages);
+    }
+    
     setShowProjectManager(false);
   };
   
@@ -180,7 +203,7 @@ export default function Home() {
     setPages(currentPages);
   };
 
-  // Function to check if models are already initialized
+  // Update checkInitializationStatus to load characters when ready
   const checkInitializationStatus = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/status`);
@@ -195,8 +218,10 @@ export default function Home() {
       });
       
       // If already initialized, fetch characters
-      if (data.initialized && !loadingCharacters) {
+      if (data.initialized && !loadingCharacters && characters.length === 0) {
+        setIsLoadingCharacters(true);
         await fetchCharacters();
+        setIsLoadingCharacters(false);
         
         // Hide the status indicator after 2 seconds when initialization completes
         if (initStatus.status !== 'success') {
@@ -224,7 +249,7 @@ export default function Home() {
         progress: 5
       });
       
-      const response = await fetch('http://localhost:5000/api/init', {
+      const response = await fetch(`${apiEndpoint}/init`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -266,7 +291,7 @@ export default function Home() {
   const fetchCharacters = async () => {
     try {
       setLoadingCharacters(true);
-      const response = await fetch('http://localhost:5000/api/get_characters');
+      const response = await fetch(`${apiEndpoint}/get_characters`);
       const data = await response.json();
       
       if (data.status === 'success') {
@@ -308,30 +333,42 @@ export default function Home() {
         </div>
       ) : (
         <div className="flex-1 overflow-hidden h-full flex flex-col">
-          {/* Project manager overlay */}
-          {showProjectManager && (
-            <div className="absolute inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
-              <div className="w-full max-w-4xl">
-                <ProjectManager
-                  apiEndpoint={apiEndpoint}
-                  onSelectProject={handleSelectProject}
-                  onSaveProject={handleSaveProject}
-                  currentPages={pages}
-                />
+          {/* Show loading indicator while project is loading */}
+          {isLoadingProject ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading project...</p>
               </div>
             </div>
+          ) : (
+            <>
+              {/* Project manager overlay */}
+              {showProjectManager && (
+                <div className="absolute inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                  <div className="w-full max-w-4xl">
+                    <ProjectManager
+                      apiEndpoint={apiEndpoint}
+                      onSelectProject={handleSelectProject}
+                      onSaveProject={handleSaveProject}
+                      currentPages={pages}
+                    />
+                  </div>
+                </div>
+              )}
+              
+              <MangaEditor 
+                characters={characters} 
+                apiEndpoint={apiEndpoint}
+                currentProject={currentProject}
+                setCurrentProject={setCurrentProject}
+                pages={pages}
+                setPages={setPages}
+                onSaveProject={handleSaveProject}
+                onShowProjectManager={() => setShowProjectManager(true)}
+              />
+            </>
           )}
-          
-          <MangaEditor 
-            characters={characters} 
-            apiEndpoint={apiEndpoint}
-            currentProject={currentProject}
-            setCurrentProject={setCurrentProject}
-            pages={pages}
-            setPages={setPages}
-            onSaveProject={handleSaveProject}
-            onShowProjectManager={() => setShowProjectManager(true)}
-          />
         </div>
       )}
 
@@ -344,6 +381,16 @@ export default function Home() {
           isMinimized={statusMinimized}
           onToggle={() => setStatusMinimized(!statusMinimized)}
         />
+      )}
+      
+      {/* Show character loading indicator in corner if needed */}
+      {isLoadingCharacters && !isLoadingProject && (
+        <div className="fixed bottom-4 left-4 bg-white rounded-lg shadow-lg p-3">
+          <div className="flex items-center">
+            <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-indigo-500 mr-3"></div>
+            <span className="text-sm text-gray-600">Loading characters...</span>
+          </div>
+        </div>
       )}
     </div>
   );
