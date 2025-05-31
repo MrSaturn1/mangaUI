@@ -61,15 +61,41 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
       }
 
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
 
       if (data.status === 'success') {
-        setGenerations(data.history || []);
+        const history = data.history || [];
+        
+        // Filter out generations with missing or invalid image data
+        const validGenerations = history.filter((gen: Generation) => {
+          if (!gen.imageData) {
+            console.warn(`Generation ${gen.timestamp} has no image data`);
+            return false;
+          }
+          
+          // Check if image data is a valid data URL
+          if (!gen.imageData.startsWith('data:image/')) {
+            console.warn(`Generation ${gen.timestamp} has invalid image data format`);
+            return false;
+          }
+          
+          return true;
+        });
+        
+        setGenerations(validGenerations);
         setCurrentGeneration(data.currentGeneration);
         
-        // Set initial selection to current generation
-        if (data.currentGeneration) {
+        // Set initial selection to current generation if it has valid image data
+        if (data.currentGeneration && data.currentGeneration.imageData) {
           setSelectedGeneration(data.currentGeneration.timestamp);
+        } else if (validGenerations.length > 0) {
+          // Fallback to first valid generation
+          setSelectedGeneration(validGenerations[0].timestamp);
         }
       } else {
         throw new Error(data.message || 'Failed to load generation history');

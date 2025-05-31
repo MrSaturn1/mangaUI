@@ -1,10 +1,12 @@
-// mangaui/frontend/src/components/CharacterManager.tsx
+// mangaui/frontend/src/components/CharacterManager.tsx - COMPLETE VERSION
 import React, { useState, useEffect } from 'react';
+import GenerationHistoryModal from './GenerationHistoryModal';
 
 interface Character {
   name: string;
   descriptions: string[];
   hasEmbedding: boolean;
+  hasHistory?: boolean;  // NEW
   imageData?: string;
 }
 
@@ -21,7 +23,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
   onSelectCharacter,
   onCharacterUpdated,
   initialSelectedCharacter = null,
-  showUseInPanelButton = true  
+  showUseInPanelButton = true,
 }) => {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(initialSelectedCharacter);
@@ -34,18 +36,28 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [newCharacterName, setNewCharacterName] = useState<string>('');
   const [newCharacterDescription, setNewCharacterDescription] = useState<string>('');
   
+  // NEW: Generation history state
+  const [showGenerationHistory, setShowGenerationHistory] = useState<boolean>(false);
+  
   // Fetch characters on component mount
   useEffect(() => {
     fetchCharacters();
   }, []);
   
-  // Function to fetch characters from API
+  // Function to fetch characters using the new endpoint with history
   const fetchCharacters = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`${apiBaseUrl}/api/get_characters`);
+      // Try the new endpoint first
+      let response = await fetch(`${apiBaseUrl}/api/get_characters_with_history`);
+      
+      if (!response.ok) {
+        // Fallback to original endpoint
+        response = await fetch(`${apiBaseUrl}/api/get_characters`);
+      }
+      
       const data = await response.json();
       
       if (data.status === 'success') {
@@ -74,7 +86,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     }
   };
   
-  // Generate character with current seed
+  // Generate character with the new history-aware endpoint
   const handleGenerateCharacter = async () => {
     if (!selectedCharacter) return;
     
@@ -82,7 +94,8 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     setError(null);
     
     try {
-      const response = await fetch(`${apiBaseUrl}/api/generate_character`, {
+      // Use the new generation endpoint that supports history
+      const response = await fetch(`${apiBaseUrl}/api/generate_character_with_history`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -90,7 +103,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
         body: JSON.stringify({
           name: selectedCharacter.name,
           seed: seed,
-          regenerate: selectedCharacter.hasEmbedding
+          regenerate: selectedCharacter.hasEmbedding || selectedCharacter.hasHistory
         })
       });
       
@@ -100,12 +113,22 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
         // Update the character in the list with new image data
         const updatedCharacters = characters.map(char => 
           char.name === selectedCharacter.name 
-            ? { ...char, imageData: data.imageData, hasEmbedding: true } 
+            ? { 
+                ...char, 
+                imageData: data.imageData, 
+                hasEmbedding: true,
+                hasHistory: true  // Now has generation history
+              } 
             : char
         );
         
         setCharacters(updatedCharacters);
-        setSelectedCharacter({ ...selectedCharacter, imageData: data.imageData, hasEmbedding: true });
+        setSelectedCharacter({ 
+          ...selectedCharacter, 
+          imageData: data.imageData, 
+          hasEmbedding: true,
+          hasHistory: true
+        });
         
         // Notify parent component if needed
         if (onCharacterUpdated) {
@@ -144,7 +167,6 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
       const data = await response.json();
       
       if (data.status === 'success') {
-        // Show success message or update UI as needed
         alert(`Character ${selectedCharacter.name} saved to keepers!`);
       } else {
         throw new Error(data.message || 'Failed to save character to keepers');
@@ -158,7 +180,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     }
   };
   
-  // Add a new character
+  // Add a new character (keeping existing implementation)
   const handleAddCharacter = async () => {
     if (!newCharacterName.trim()) {
       setError('Character name cannot be empty');
@@ -169,7 +191,6 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     setError(null);
     
     try {
-      // This would call your API to add a new character to the database
       const response = await fetch(`${apiBaseUrl}/api/add_character`, {
         method: 'POST',
         headers: {
@@ -184,11 +205,11 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
       const data = await response.json();
       
       if (data.status === 'success') {
-        // Add the new character to our list
         const newCharacter = {
           name: newCharacterName,
           descriptions: newCharacterDescription.split('\n').filter(d => d.trim()),
-          hasEmbedding: false
+          hasEmbedding: false,
+          hasHistory: false
         };
         
         setCharacters([...characters, newCharacter]);
@@ -197,7 +218,6 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
         setNewCharacterDescription('');
         setShowAddCharacterModal(false);
         
-        // Notify parent component if needed
         if (onCharacterUpdated) {
           onCharacterUpdated([...characters, newCharacter]);
         }
@@ -209,11 +229,12 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
       console.error('Error adding character:', err);
       setError(`Failed to add character: ${errorMessage}`);
       
-      // For demo purposes, add the character anyway if API fails
+      // Fallback implementation
       const newCharacter = {
         name: newCharacterName,
         descriptions: newCharacterDescription.split('\n').filter(d => d.trim()),
-        hasEmbedding: false
+        hasEmbedding: false,
+        hasHistory: false
       };
       
       setCharacters([...characters, newCharacter]);
@@ -224,6 +245,22 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     } finally {
       setIsLoading(false);
     }
+  };
+  
+  // Render history button only if character has history
+  const renderHistoryButton = () => {
+    if (!selectedCharacter || !selectedCharacter.hasHistory) {
+      return null;
+    }
+    
+    return (
+      <button
+        className="flex-1 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+        onClick={() => setShowGenerationHistory(true)}
+      >
+        View History
+      </button>
+    );
   };
   
   return (
@@ -272,7 +309,7 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
                 }`}
                 onClick={() => handleSelectCharacter(character)}
               >
-                <div className="aspect-square">
+                <div className="aspect-square relative">
                   {character.imageData ? (
                     <img
                       src={character.imageData}
@@ -284,6 +321,17 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
                       <span className="text-4xl text-gray-500">{character.name[0]}</span>
                     </div>
                   )}
+                  
+                  {/* NEW: History indicator */}
+                  {character.hasHistory && (
+                    <div className="absolute top-2 right-2">
+                      <div className="w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="p-2 bg-white">
                   <div className="font-medium truncate text-gray-800">{character.name}</div>
@@ -292,6 +340,11 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
                       <span className="text-green-500 mr-1">✓</span>
                     )}
                     {character.descriptions?.length || 0} descriptions
+                    {character.hasHistory && (
+                      <span className="ml-1 text-purple-500" title="Has generation history">
+                        📚
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -330,11 +383,18 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
                   </div>
                 )}
                 
-                <div className="text-sm text-gray-600">
-                  {selectedCharacter.hasEmbedding ? (
-                    <span className="text-green-500 font-medium">Character has embedding ✓</span>
-                  ) : (
-                    <span className="text-yellow-500 font-medium">Character not generated yet</span>
+                <div className="text-sm text-gray-600 flex items-center justify-between">
+                  <div>
+                    {selectedCharacter.hasEmbedding ? (
+                      <span className="text-green-500 font-medium">Character has embedding ✓</span>
+                    ) : (
+                      <span className="text-yellow-500 font-medium">Character not generated yet</span>
+                    )}
+                  </div>
+                  {selectedCharacter.hasHistory && (
+                    <span className="text-purple-500 text-xs bg-purple-100 px-2 py-1 rounded">
+                      Has History
+                    </span>
                   )}
                 </div>
               </div>
@@ -370,42 +430,49 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
                 </div>
               </div>
               
-              <div className="flex space-x-4">
-                <button
-                  className="flex-1 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
-                  onClick={handleGenerateCharacter}
-                  disabled={isGenerating}
-                >
-                  {isGenerating
-                    ? 'Generating...'
-                    : selectedCharacter.hasEmbedding
-                      ? 'Regenerate'
-                      : 'Generate'
-                  }
-                </button>
+              {/* Updated button layout with history button */}
+              <div className="space-y-2">
+                <div className="flex space-x-2">
+                  <button
+                    className="flex-1 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
+                    onClick={handleGenerateCharacter}
+                    disabled={isGenerating}
+                  >
+                    {isGenerating
+                      ? 'Generating...'
+                      : selectedCharacter.hasEmbedding || selectedCharacter.hasHistory
+                        ? 'Generate New Version'
+                        : 'Generate'}
+                  </button>
+                  
+                  <button
+                    className="flex-1 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400"
+                    onClick={handleSaveToKeepers}
+                    disabled={!selectedCharacter.hasEmbedding || isLoading}
+                  >
+                    Save to Keepers
+                  </button>
+                </div>
                 
-                <button
-                  className="flex-1 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400"
-                  onClick={handleSaveToKeepers}
-                  disabled={!selectedCharacter.hasEmbedding || isLoading}
-                >
-                  Save to Keepers
-                </button>
+                {/* History button row */}
+                <div className="flex space-x-2">
+                  {renderHistoryButton()}
+                  
+                  {/* Use in Panel button */}
+                  {selectedCharacter && showUseInPanelButton && (
+                    <button
+                      className="flex-1 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                      onClick={() => {
+                        if (onSelectCharacter) {
+                          onSelectCharacter(selectedCharacter);
+                        }
+                      }}
+                    >
+                      Use in Selected Panel
+                    </button>
+                  )}
+                </div>
               </div>
-              
-              {/* Use in Panel button */}
-              {selectedCharacter && showUseInPanelButton && (
-                <button
-                  className="w-full mt-4 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
-                  onClick={() => {
-                    if (onSelectCharacter) {
-                      onSelectCharacter(selectedCharacter);
-                    }
-                  }}
-                >
-                  Use in Selected Panel
-                </button>
-              )}
             </div>
           </div>
         ) : (
@@ -418,7 +485,22 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
         )}
       </div>
       
-      {/* Add Character Modal */}
+      {/* Generation History Modal */}
+      {showGenerationHistory && selectedCharacter && (
+        <GenerationHistoryModal
+          isOpen={showGenerationHistory}
+          onClose={() => setShowGenerationHistory(false)}
+          type="character"
+          characterName={selectedCharacter.name}
+          apiEndpoint={apiBaseUrl}
+          onSelectionChanged={async (timestamp) => {
+            // Close the modal
+            setShowGenerationHistory(false);
+          }}
+        />
+      )}
+      
+      {/* Add Character Modal - unchanged */}
       {showAddCharacterModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">

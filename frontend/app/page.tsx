@@ -38,6 +38,7 @@ export default function Home() {
     // Start both processes in parallel
     startInitialization();
     loadProjectData();
+    loadCharactersEarly();
     
     // Set up polling for initialization status
     const intervalId = setInterval(() => {
@@ -97,6 +98,22 @@ export default function Home() {
       setPages(projectPages);
     } else {
       createDefaultProject();
+    }
+  };
+
+  const reloadCurrentProject = async () => {
+    if (!currentProject) return;
+    
+    try {
+      const response = await fetch(`${apiEndpoint}/projects/${currentProject.id}`);
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        setPages(data.pages || []);
+        console.log('Project reloaded with updated generation data');
+      }
+    } catch (error) {
+      console.error('Error reloading project:', error);
     }
   };
 
@@ -203,27 +220,53 @@ export default function Home() {
     setPages(currentPages);
   };
 
-  // Update checkInitializationStatus to load characters when ready
+  // New function to load characters early (before models are ready)
+  const loadCharactersEarly = async () => {
+    setIsLoadingCharacters(true);
+    
+    try {
+      // Try the new endpoint first (includes history)
+      let response = await fetch(`${apiEndpoint}/get_characters_with_history`);
+      
+      if (!response.ok) {
+        // Fallback to original endpoint
+        response = await fetch(`${apiEndpoint}/get_characters`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        setCharacters(data.characters);
+      } else {
+        console.error('Error fetching characters:', data.message);
+      }
+    } catch (error) {
+      console.error('Error fetching characters early:', error);
+      // Don't show error to user since models might not be ready yet
+    } finally {
+      setIsLoadingCharacters(false);
+    }
+  };
+
+  // Update the checkInitializationStatus to only reload characters if they haven't been loaded
   const checkInitializationStatus = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/status`);
       const data = await response.json();
       
-      // Update status for floating indicator
       setInitStatus({
         status: data.initialized ? 'success' : 
-               data.initializing ? 'in_progress' : 'error',
+              data.initializing ? 'in_progress' : 'error',
         message: data.message || 'Checking model status...',
         progress: data.progress || 0
       });
       
-      // If already initialized, fetch characters
+      // Only fetch characters if models are initialized AND we don't have characters yet
       if (data.initialized && !loadingCharacters && characters.length === 0) {
         setIsLoadingCharacters(true);
-        await fetchCharacters();
+        await fetchCharacters(); // This will now use the enhanced endpoint
         setIsLoadingCharacters(false);
         
-        // Hide the status indicator after 2 seconds when initialization completes
         if (initStatus.status !== 'success') {
           setTimeout(() => {
             setShowModelStatus(false);
@@ -366,6 +409,7 @@ export default function Home() {
                 setPages={setPages}
                 onSaveProject={handleSaveProject}
                 onShowProjectManager={() => setShowProjectManager(true)}
+                onReloadProject={reloadCurrentProject}
               />
             </>
           )}

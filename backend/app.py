@@ -23,6 +23,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 from contextlib import asynccontextmanager
 import numpy as np
+import uuid
+import shutil
+from shutil import copyfile
 
 # Add the current directory to the path so we can import manga_generator and character_generator
 sys.path.append('.')
@@ -223,6 +226,49 @@ def initialize_models_thread(model_path, character_data_path, character_embeddin
         print(f"Error initializing models: {error_message}")
         traceback.print_exc()
 
+# Helper functions for generation history
+def generate_generation_id():
+    """Generate a unique generation ID"""
+    return f"gen_{int(time.time())}_{str(uuid.uuid4())[:8]}"
+
+def create_generation_metadata(seed, width, height, prompt, model_info=None):
+    """Create metadata for a generation"""
+    return {
+        "timestamp": str(int(time.time())),
+        "datetime": datetime.datetime.now().isoformat(),
+        "seed": seed,
+        "width": width,
+        "height": height,
+        "prompt": prompt,
+        "isActive": False,  # Will be set to True when activated
+        "metadata": model_info or {
+            "model_version": "drawatoon-v1",
+            "inference_steps": 30,
+            "guidance_scale": 7.5
+        }
+    }
+
+def save_project_structure(project_id, project_data):
+    """Save the complete project structure to disk"""
+    project_dir = Path("manga_projects") / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+    
+    project_file = project_dir / "project.json"
+    with open(project_file, 'w') as f:
+        json.dump(project_data, f, indent=2, cls=NumpyEncoder)
+
+def load_project_structure(project_id):
+    """Load the complete project structure from disk"""
+    project_dir = Path("manga_projects") / project_id
+    project_file = project_dir / "project.json"
+    
+    if project_file.exists():
+        with open(project_file, 'r') as f:
+            return json.load(f)
+    
+    return None
+
+
 @app.post("/api/init", response_model=Dict[str, Any])
 async def initialize_models(request: InitRequest):
     """Initialize the model pipelines in a background thread"""
@@ -388,6 +434,314 @@ async def generate_character(request: GenerateCharacterRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+    
+# Character generation with history support
+@app.post("/api/generate_character_with_history", response_model=Dict[str, Any])
+async def generate_character_with_history(request: GenerateCharacterRequest):
+    """Generate a character and store it in the generation history"""
+    global character_generator
+    
+    if character_generator is None:
+        raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Models not initialized'})
+    
+    character_name = request.name
+    seed = request.seed
+    regenerate = request.regenerate
+    
+    if not character_name:
+        raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Character name is required'})
+    
+    try:
+        # Create generation ID
+        generation_id = generate_generation_id()
+        
+        # Create character directories
+        char_dir = Path("manga_projects") / "characters" / character_name
+        char_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Prepare generation metadata
+        generation_metadata = create_generation_metadata(
+            seed=seed or random.randint(0, 1000000),
+            width=512,  # Standard character size
+            height=512,
+            prompt=f"Character portrait of {character_name}"
+        )
+        
+        # Generate the character
+        if regenerate:
+            output_path = character_generator.regenerate_character(character_name, generation_metadata["seed"])
+        else:
+            output_path = character_generator.generate_character(character_name, generation_metadata["seed"])
+        
+        # Move the generated image to our history location
+        image_filename = f"{generation_id}.png"
+        history_image_path = char_dir / image_filename
+        
+        if output_path != history_image_path:
+            shutil.move(output_path, history_image_path)
+        
+        # Generate embedding if needed
+        embedding_filename = f"{generation_id}.pt"
+        embedding_path = char_dir / embedding_filename
+        
+        # Create the embedding (this would need to be implemented in character_generator)
+        # For now, we'll assume the embedding is created as part of the generation process
+        
+        # Update generation metadata
+        generation_metadata.update({
+            "imagePath": f"/api/images/characters/{character_name}/{image_filename}",
+            "embeddingPath": f"/api/embeddings/characters/{character_name}/{embedding_filename}",
+            "isActive": True,
+            "hasEmbedding": True
+        })
+        
+        # Load or create character structure
+        characters_file = Path("manga_projects") / "characters.json"
+        if characters_file.exists():
+            with open(characters_file, 'r') as f:
+                characters_data = json.load(f)
+        else:
+            characters_data = {}
+        
+        # Update character data
+        if character_name not in characters_data:
+            # Get character descriptions from original character data
+            original_char_data = None
+            for char in character_generator.character_data:
+                if char.get("name") == character_name:
+                    original_char_data = char
+                    break
+            
+            characters_data[character_name] = {
+                "name": character_name,
+                "descriptions": original_char_data.get("descriptions", []) if original_char_data else [],
+                "activeGenerationId": None,
+                "generations": {}
+            }
+        
+        char_data = characters_data[character_name]
+        
+        # Add the new generation
+        char_data["generations"][generation_id] = generation_metadata
+        
+        # Set all other generations as inactive and this one as active
+        for gen_id, gen_data in char_data["generations"].items():
+            gen_data["isActive"] = (gen_id == generation_id)
+        
+        char_data["activeGenerationId"] = generation_id
+        
+        # Save the updated character structure
+        with open(characters_file, 'w') as f:
+            json.dump(characters_data, f, indent=2, cls=NumpyEncoder)
+        
+        # Read the generated image for response
+        with open(history_image_path, "rb") as img_file:
+            img_data = base64.b64encode(img_file.read()).decode('utf-8')
+        
+        return {
+            'status': 'success',
+            'imageData': f"data:image/png;base64,{img_data}",
+            'name': character_name,
+            'seed': generation_metadata["seed"],
+            'generationId': generation_id,
+            'hasEmbedding': True
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+# Character history endpoints
+@app.get("/api/character_history/{character_name}")
+async def get_character_history(character_name: str):
+    """Get generation history for a specific character"""
+    try:
+        characters_file = Path("manga_projects") / "characters.json"
+        
+        if not characters_file.exists():
+            return {
+                'status': 'success',
+                'history': [],
+                'currentGeneration': None
+            }
+        
+        with open(characters_file, 'r') as f:
+            characters_data = json.load(f)
+        
+        char_data = characters_data.get(character_name, {})
+        generations = char_data.get("generations", {})
+        
+        if not generations:
+            return {
+                'status': 'success',
+                'history': [],
+                'currentGeneration': None
+            }
+        
+        # Get generations and sort by timestamp
+        history = []
+        current_generation = None
+        active_id = char_data.get("activeGenerationId")
+        
+        for gen_id, gen_data in generations.items():
+            # Load image data for the generation
+            image_path = Path("manga_projects") / "characters" / character_name / f"{gen_id}.png"
+            image_data = None
+            
+            if image_path.exists():
+                with open(image_path, 'rb') as img_file:
+                    img_bytes = img_file.read()
+                    image_data = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
+            
+            generation_item = {
+                "timestamp": gen_id,
+                "datetime": gen_data.get("datetime"),
+                "imageData": image_data,
+                "seed": gen_data.get("seed"),
+                "isActive": gen_data.get("isActive", False),
+                "hasEmbedding": gen_data.get("hasEmbedding", False)
+            }
+            
+            history.append(generation_item)
+            
+            if gen_id == active_id:
+                current_generation = generation_item
+        
+        # Sort by timestamp descending (newest first)
+        history.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        return {
+            'status': 'success',
+            'history': history,
+            'currentGeneration': current_generation
+        }
+        
+    except Exception as e:
+        print(f"Error getting character history: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+@app.post("/api/set_active_character_generation")
+async def set_active_character_generation(request: dict):
+    """Set a specific generation as the active one for a character"""
+    try:
+        character_name = request.get('characterName')
+        timestamp = request.get('timestamp')
+        create_embedding = request.get('createEmbedding', False)
+        
+        if not all([character_name, timestamp]):
+            raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Missing required parameters'})
+        
+        characters_file = Path("manga_projects") / "characters.json"
+        
+        if not characters_file.exists():
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Characters file not found'})
+        
+        with open(characters_file, 'r') as f:
+            characters_data = json.load(f)
+        
+        if character_name not in characters_data:
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Character not found'})
+        
+        char_data = characters_data[character_name]
+        
+        if timestamp not in char_data.get("generations", {}):
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Generation not found'})
+        
+        # Update active generation
+        for gen_id, gen_data in char_data["generations"].items():
+            gen_data["isActive"] = (gen_id == timestamp)
+        
+        char_data["activeGenerationId"] = timestamp
+        
+        # Create embedding if requested
+        if create_embedding:
+            char_data["generations"][timestamp]["hasEmbedding"] = True
+            # TODO: Implement embedding creation logic here
+        
+        # Save the updated character structure
+        with open(characters_file, 'w') as f:
+            json.dump(characters_data, f, indent=2, cls=NumpyEncoder)
+        
+        return {
+            'status': 'success',
+            'message': 'Active character generation updated successfully'
+        }
+        
+    except Exception as e:
+        print(f"Error setting active character generation: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+# Enhanced get_characters endpoint with history support
+@app.get("/api/get_characters_with_history", response_model=Dict[str, Any])
+async def get_characters_with_history():
+    """Get all available characters with their generation history status"""
+    try:
+        # Load character data from the original source
+        with open(character_generator.character_data_path if character_generator else './characters.json', 'r', encoding='utf-8') as f:
+            original_characters_data = json.load(f)
+        
+        # Load generation history data
+        characters_file = Path("manga_projects") / "characters.json"
+        history_data = {}
+        
+        if characters_file.exists():
+            with open(characters_file, 'r') as f:
+                history_data = json.load(f)
+        
+        # Prepare response data
+        characters = []
+        
+        for char in original_characters_data:
+            name = char.get('name', '')
+            if not name:
+                continue
+            
+            char_history = history_data.get(name, {})
+            active_id = char_history.get("activeGenerationId")
+            has_history = len(char_history.get("generations", {})) > 0
+            
+            # Get active generation image if available
+            image_data = None
+            has_embedding = False
+            
+            if active_id and active_id in char_history.get("generations", {}):
+                active_gen = char_history["generations"][active_id]
+                has_embedding = active_gen.get("hasEmbedding", False)
+                
+                # Load image data
+                image_path = Path("manga_projects") / "characters" / name / f"{active_id}.png"
+                if image_path.exists():
+                    with open(image_path, 'rb') as img_file:
+                        image_bytes = img_file.read()
+                        image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+            
+            # Fallback to keeper image if no history
+            if not image_data:
+                keeper_path = Path('character_output') / 'character_images' / 'keepers' / f"{name}.png"
+                if keeper_path.exists():
+                    with open(keeper_path, 'rb') as img_file:
+                        image_bytes = img_file.read()
+                        image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+                        has_embedding = True  # Assume keeper images have embeddings
+            
+            characters.append({
+                'name': name,
+                'descriptions': char.get('descriptions', []),
+                'hasEmbedding': has_embedding,
+                'hasHistory': has_history,
+                'imageData': image_data
+            })
+                
+        return {
+            'status': 'success', 
+            'characters': characters
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
 
 @app.post("/api/save_to_keepers", response_model=Dict[str, Any])
 async def save_to_keepers(request: SaveToKeepersRequest):
@@ -409,7 +763,7 @@ async def save_to_keepers(request: SaveToKeepersRequest):
         os.makedirs(os.path.dirname(keeper_path), exist_ok=True)
         
         # Copy the character image to the keepers folder
-        from shutil import copyfile
+        
         copyfile(character_path, keeper_path)
         
         return {
@@ -554,54 +908,55 @@ def panel_request_worker():
             traceback.print_exc()
             time.sleep(1)  # Avoid tight loop on error
 
+# Updated generate_panel endpoint - now with generation history support
 @app.post("/api/generate_panel", response_model=Dict[str, Any])
 async def generate_panel(request: PanelGenerateRequest):
-    """API endpoint to generate a panel image or queue it for generation"""
+    """Generate a panel and store it in the generation history"""
     try:
-        # Get project ID or use 'default' if not provided
-        project_id = request.projectId
+        project_id = request.projectId or 'default'
+        panel_index = request.panelIndex or 0
         
-        # Log the incoming data for debugging
-        print(f"Received data for panel generation, project ID: {project_id}")
+        # Create generation ID
+        generation_id = generate_generation_id()
         
-        # Create panel_data for the manga generator in the correct format
-        # The model expects text_bboxes and character_bboxes as lists of [x1, y1, x2, y2]
+        # Create project directories
+        project_dir = Path("manga_projects") / project_id
+        panel_dir = project_dir / "panels" / f"panel_{panel_index:04d}"
+        panel_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Prepare generation metadata
+        generation_metadata = create_generation_metadata(
+            seed=request.seed or random.randint(0, 1000000),
+            width=request.width or 512,
+            height=request.height or 512,
+            prompt=request.prompt or ''
+        )
+        
+        # Generate the image path
+        image_filename = f"{generation_id}.png"
+        output_path = panel_dir / image_filename
+        
+        # Set up the generation parameters (same as before)
         text_bboxes = []
-        if request.textBoxes:
-            for box in request.textBoxes:
-                # Convert from {x, y, width, height} to [x1, y1, x2, y2]
-                text_bboxes.append([
-                    box.x, 
-                    box.y, 
-                    box.x + box.width, 
-                    box.y + box.height
-                ])
-                
         character_bboxes = []
         reference_embeddings = []
         
+        if request.textBoxes:
+            for box in request.textBoxes:
+                text_bboxes.append([box.x, box.y, box.x + box.width, box.y + box.height])
+        
         if request.characterBoxes:
             for box in request.characterBoxes:
-                # Convert from {x, y, width, height} to [x1, y1, x2, y2]
-                character_bboxes.append([
-                    box.x, 
-                    box.y, 
-                    box.x + box.width, 
-                    box.y + box.height
-                ])
+                character_bboxes.append([box.x, box.y, box.x + box.width, box.y + box.height])
                 
-                # Get the character embedding if available
                 character_name = box.character
                 if manga_generator:
                     embedding = manga_generator.get_character_embedding(character_name)
-                    if embedding is not None:
-                        reference_embeddings.append(embedding)
-                    else:
-                        print(f"Warning: No embedding found for character {character_name}")
-                        # Add a placeholder embedding (None) so the indices match
-                        reference_embeddings.append(None)
+                    reference_embeddings.append(embedding)
+                else:
+                    reference_embeddings.append(None)
         
-        # Create a panel data object for the MangaGenerator
+        # Create panel data for generation
         panel_data = {
             'setting': request.setting,
             'characters': set(request.characterNames),
@@ -611,106 +966,152 @@ async def generate_panel(request: PanelGenerateRequest):
             'characterBoxes': [box.dict() for box in request.characterBoxes] if request.characterBoxes else []
         }
         
-        # Add dialogue elements
+        # Add dialogue and action elements
         for dialogue in request.dialogues:
             if dialogue.character and dialogue.text:
-                dialogue_element = {
+                panel_data['elements'].append({
                     'type': 'dialogue',
                     'character': dialogue.character,
                     'dialogue': dialogue.text,
                     'characters_present': [dialogue.character]
-                }
-                panel_data['elements'].append(dialogue_element)
+                })
         
-        # Add action elements
         for action in request.actions:
             if action.text:
-                action_element = {
+                panel_data['elements'].append({
                     'type': 'action',
                     'text': action.text,
                     'characters_present': request.characterNames
-                }
-                panel_data['elements'].append(action_element)
+                })
         
-        # If no elements were added but we have a prompt, create a generic action
-        if not panel_data['elements'] and request.prompt:
-            panel_data['elements'].append({
-                'type': 'action',
-                'text': request.prompt,
-                'characters_present': request.characterNames
-            })
-            
-        # Process the panel generation
+        # Create IP parameters
+        ip_params = {
+            'text_bboxes': [text_bboxes],
+            'character_bboxes': [character_bboxes], 
+            'reference_embeddings': [reference_embeddings]
+        }
+        
+        # Check if models are initialized
         if initialization_status["is_initialized"]:
-            # Extract panel details
-            panel_index = request.panelIndex
-            seed = request.seed if request.seed is not None else random.randint(0, 1000000)
-            
-            # Extract panel dimensions from the request
-            panel_width = request.width
-            panel_height = request.height
-            
-            # Create project directories if they don't exist
-            project_output_dir = Path("manga_projects") / project_id
-            project_panels_dir = project_output_dir / "panels"
-            project_panels_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate the panel using MangaGenerator
+            # Generate the panel immediately
             if not manga_generator:
                 raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Manga generator not initialized'})
             
-            # Create a JSON-serializable version of panel_data for saving to file
-            panel_data_json_safe = panel_data.copy()
-            
-            # Create parameters to pass to transformer
-            ip_params = {
-                'text_bboxes': text_bboxes,
-                'character_bboxes': character_bboxes,
-                'reference_embeddings': reference_embeddings
-            }
-            
-            # Generate panel and save to project directory
-            output_path, updated_panel_data = manga_generator.generate_panel(
+            # Generate panel
+            actual_output_path, updated_panel_data = manga_generator.generate_panel(
                 panel_data=panel_data,
                 panel_index=panel_index,
-                seed=seed,
-                width=panel_width,
-                height=panel_height,
+                seed=generation_metadata["seed"],
+                width=generation_metadata["width"],
+                height=generation_metadata["height"],
                 project_id=project_id,
-                ip_params=ip_params  # Pass the IP adapter parameters separately
+                ip_params=ip_params
             )
             
-            # Save panel metadata (using custom JSON encoder for NumPy arrays)
-            panel_json_path = project_panels_dir / f"panel_{panel_index:04d}.json"
-            with open(panel_json_path, 'w') as f:
-                json.dump(panel_data_json_safe, f, indent=2, cls=NumpyEncoder)
+            # Move the generated image to our history location
+            if actual_output_path != output_path:
+                shutil.move(actual_output_path, output_path)
             
-            # Return response with panel data and project ID
+            # Update generation metadata with actual values
+            generation_metadata.update({
+                "imagePath": f"/api/images/{project_id}/panels/panel_{panel_index:04d}/{image_filename}",
+                "isActive": True,  # This becomes the new active generation
+                "prompt": manga_generator.create_panel_prompt(panel_data)
+            })
+            
+            # Load existing project structure
+            project_data = load_project_structure(project_id)
+            if not project_data:
+                project_data = {
+                    "id": project_id,
+                    "name": f"Project {project_id}",
+                    "created": datetime.datetime.now().isoformat(),
+                    "lastModified": datetime.datetime.now().isoformat(),
+                    "pages": [],
+                    "characters": {},
+                    "settings": {
+                        "defaultPanelSize": {"width": 512, "height": 512},
+                        "pageSize": {"width": 1500, "height": 2250}
+                    }
+                }
+            
+            # Update project structure with new generation
+            # Find or create the page
+            page_index = 0  # Assuming single page for now, could be extended
+            while len(project_data["pages"]) <= page_index:
+                project_data["pages"].append({
+                    "id": f"page-{len(project_data['pages']) + 1}",
+                    "panels": []
+                })
+            
+            page = project_data["pages"][page_index]
+            
+            # Find or create the panel
+            panel = None
+            for p in page["panels"]:
+                if p.get("panelIndex") == panel_index:
+                    panel = p
+                    break
+            
+            if not panel:
+                panel = {
+                    "id": f"panel-{panel_index}",
+                    "x": 50 + (panel_index % 2) * 400,
+                    "y": 50 + (panel_index // 2) * 400,
+                    "width": 400,
+                    "height": 400,
+                    "panelIndex": panel_index,
+                    "characterNames": request.characterNames,
+                    "characterBoxes": [box.dict() for box in request.characterBoxes] if request.characterBoxes else [],
+                    "textBoxes": [box.dict() for box in request.textBoxes] if request.textBoxes else [],
+                    "dialogues": [d.dict() for d in request.dialogues],
+                    "actions": [a.dict() for a in request.actions],
+                    "setting": request.setting,
+                    "prompt": request.prompt,
+                    "activeGenerationId": None,
+                    "generations": {}
+                }
+                page["panels"].append(panel)
+            
+            # Add the new generation
+            panel["generations"][generation_id] = generation_metadata
+            
+            # Set all other generations as inactive and this one as active
+            for gen_id, gen_data in panel["generations"].items():
+                gen_data["isActive"] = (gen_id == generation_id)
+            
+            panel["activeGenerationId"] = generation_id
+            
+            # Update project metadata
+            project_data["lastModified"] = datetime.datetime.now().isoformat()
+            
+            # Save the updated project structure
+            save_project_structure(project_id, project_data)
+            
+            # Read the generated image for response
             with open(output_path, 'rb') as img_file:
                 img_data = base64.b64encode(img_file.read()).decode('utf-8')
             
             return {
                 'status': 'success',
                 'imageData': f'data:image/png;base64,{img_data}',
-                'imagePath': f'/api/images/{project_id}/panels/panel_{panel_index:04d}.png',
-                'prompt': request.prompt or manga_generator.create_panel_prompt(panel_data),
+                'imagePath': generation_metadata["imagePath"],
+                'prompt': generation_metadata["prompt"],
                 'panelIndex': panel_index,
-                'seed': seed,
-                'width': panel_width,
-                'height': panel_height,
-                'projectId': project_id
+                'seed': generation_metadata["seed"],
+                'width': generation_metadata["width"],
+                'height': generation_metadata["height"],
+                'projectId': project_id,
+                'generationId': generation_id
             }
-        else:
-            # Queue the request if models not initialized
-            # Generate a unique request ID
-            request_id = f"req_{time.time()}_{random.randint(1000, 9999)}"
             
-            # For queued requests, we need to ensure all data is JSON serializable
-            # The actual embeddings will be retrieved when the request is processed
-            character_names = [box.character for box in request.characterBoxes] if request.characterBoxes else []
+        else:
+            # Queue the request (existing logic)
+            request_id = f"req_{time.time()}_{random.randint(1000, 9999)}"
             
             panel_request = {
                 'request_id': request_id,
+                'generation_id': generation_id,
                 'panel_data': {
                     'projectId': project_id,
                     'prompt': request.prompt,
@@ -720,32 +1121,155 @@ async def generate_panel(request: PanelGenerateRequest):
                     'actions': [a.dict() for a in request.actions],
                     'textBoxes': [t.dict() for t in request.textBoxes] if request.textBoxes else [],
                     'characterBoxes': [c.dict() for c in request.characterBoxes] if request.characterBoxes else [],
-                    'panelIndex': request.panelIndex,
-                    'seed': seed,
-                    'width': panel_width,
-                    'height': panel_height,
+                    'panelIndex': panel_index,
+                    'seed': generation_metadata["seed"],
+                    'width': generation_metadata["width"],
+                    'height': generation_metadata["height"],
                     'panel_data': panel_data,
                 }
             }
             
-            # Add to queue
             panel_request_queue.put(panel_request)
             
-            # Return status - the request is queued
-            initialization_progress = initialization_status["progress"]
             return {
                 'status': 'queued',
                 'message': 'Panel generation queued. Models still initializing.',
                 'request_id': request_id,
-                'progress': initialization_progress,
+                'progress': initialization_status["progress"],
                 'projectId': project_id,
-                'eta_seconds': max(5, int((100 - initialization_progress) * 0.5))
+                'generationId': generation_id,
+                'eta_seconds': max(5, int((100 - initialization_status["progress"]) * 0.5))
             }
             
     except Exception as e:
         print(f"Error handling generate_panel request: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+# New endpoint to get panel generation history
+@app.get("/api/panel_history/{project_id}/{panel_index}")
+async def get_panel_history(project_id: str, panel_index: int):
+    """Get generation history for a specific panel"""
+    try:
+        project_data = load_project_structure(project_id)
+        if not project_data:
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Project not found'})
+        
+        # Find the panel
+        panel = None
+        for page in project_data.get("pages", []):
+            for p in page.get("panels", []):
+                if p.get("panelIndex") == panel_index:
+                    panel = p
+                    break
+            if panel:
+                break
+        
+        if not panel:
+            return {
+                'status': 'success',
+                'history': [],
+                'currentGeneration': None
+            }
+        
+        # Get generations and sort by timestamp
+        generations = panel.get("generations", {})
+        history = []
+        current_generation = None
+        active_id = panel.get("activeGenerationId")
+        
+        for gen_id, gen_data in generations.items():
+            # Load image data for the generation
+            image_path = Path("manga_projects") / project_id / "panels" / f"panel_{panel_index:04d}" / f"{gen_id}.png"
+            image_data = None
+            
+            if image_path.exists():
+                with open(image_path, 'rb') as img_file:
+                    img_bytes = img_file.read()
+                    image_data = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
+            
+            generation_item = {
+                "timestamp": gen_id,
+                "datetime": gen_data.get("datetime"),
+                "imageData": image_data,
+                "seed": gen_data.get("seed"),
+                "prompt": gen_data.get("prompt"),
+                "isActive": gen_data.get("isActive", False),
+                "width": gen_data.get("width"),
+                "height": gen_data.get("height")
+            }
+            
+            history.append(generation_item)
+            
+            if gen_id == active_id:
+                current_generation = generation_item
+        
+        # Sort by timestamp descending (newest first)
+        history.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        return {
+            'status': 'success',
+            'history': history,
+            'currentGeneration': current_generation
+        }
+        
+    except Exception as e:
+        print(f"Error getting panel history: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+# New endpoint to set active panel generation
+@app.post("/api/set_active_panel_generation")
+async def set_active_panel_generation(request: dict):
+    """Set a specific generation as the active one for a panel"""
+    try:
+        project_id = request.get('projectId')
+        panel_index = request.get('panelIndex')
+        timestamp = request.get('timestamp')
+        
+        if not all([project_id, panel_index is not None, timestamp]):
+            raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Missing required parameters'})
+        
+        project_data = load_project_structure(project_id)
+        if not project_data:
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Project not found'})
+        
+        # Find and update the panel
+        panel = None
+        for page in project_data.get("pages", []):
+            for p in page.get("panels", []):
+                if p.get("panelIndex") == panel_index:
+                    panel = p
+                    break
+            if panel:
+                break
+        
+        if not panel:
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Panel not found'})
+        
+        if timestamp not in panel.get("generations", {}):
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Generation not found'})
+        
+        # Update active generation
+        for gen_id, gen_data in panel["generations"].items():
+            gen_data["isActive"] = (gen_id == timestamp)
+        
+        panel["activeGenerationId"] = timestamp
+        project_data["lastModified"] = datetime.datetime.now().isoformat()
+        
+        # Save the updated project structure
+        save_project_structure(project_id, project_data)
+        
+        return {
+            'status': 'success',
+            'message': 'Active generation updated successfully'
+        }
+        
+    except Exception as e:
+        print(f"Error setting active panel generation: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
     
 @app.get("/api/check_panel_status", response_model=Dict[str, Any])
 async def check_panel_status(request_id: str = Query(...)):
@@ -925,23 +1449,22 @@ async def get_generated_panels(projectId: str = Query(default="default")):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
 
-@app.get("/api/images/{project_id}/{filename}")
+@app.get("/api/images/{project_id}/panels/{panel_folder}/{filename}")
 async def get_image(project_id: str, filename: str):
-    """Retrieve an image by its path"""
+    """Retrieve panel images from generation history"""
     try:
-        image_path = Path("manga_projects") / project_id / "panels" / filename
+        image_path = Path("manga_projects") / project_id / "panels" / panel_folder / filename
         
         if not image_path.exists():
-            # Check if it's in pages folder
-            image_path = Path("manga_projects") / project_id / "pages" / filename
-            if not image_path.exists():
-                raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Image not found'})
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Image not found'})
         
         return FileResponse(image_path.as_posix(), media_type="image/png")
+        
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
     
 @app.get("/api/status", response_model=Dict[str, Any])
 async def check_status():
@@ -1038,10 +1561,70 @@ async def create_project(request: CreateProjectRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
 
+# Updated project loading endpoint - now supports generation history
 @app.get("/api/projects/{project_id}", response_model=Dict[str, Any])
 async def get_project(project_id: str):
-    """Get a specific project and its pages"""
+    """Get a project with complete panel and generation data"""
     try:
+        # Load from new structure first
+        project_data = load_project_structure(project_id)
+        
+        if project_data:
+            # Convert to format expected by frontend
+            frontend_pages = []
+            
+            for page in project_data.get("pages", []):
+                frontend_panels = []
+                
+                for panel in page.get("panels", []):
+                    # Get active generation data
+                    active_id = panel.get("activeGenerationId")
+                    active_generation = None
+                    
+                    if active_id and active_id in panel.get("generations", {}):
+                        active_generation = panel["generations"][active_id]
+                        
+                        # Load image data for active generation
+                        image_path = Path("manga_projects") / project_id / "panels" / f"panel_{panel['panelIndex']:04d}" / f"{active_id}.png"
+                        if image_path.exists():
+                            with open(image_path, 'rb') as img_file:
+                                img_bytes = img_file.read()
+                                panel["imageData"] = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
+                        
+                        panel["imagePath"] = active_generation.get("imagePath")
+                        panel["seed"] = active_generation.get("seed")
+                    
+                    frontend_panels.append(panel)
+                
+                frontend_pages.append({
+                    "id": page["id"],
+                    "panels": frontend_panels
+                })
+            
+            # Get project metadata from projects.json
+            projects_file = Path("manga_projects") / "projects.json"
+            project_metadata = None
+            
+            if projects_file.exists():
+                with open(projects_file, 'r') as f:
+                    projects = json.load(f)
+                    project_metadata = next((p for p in projects if p['id'] == project_id), None)
+            
+            if not project_metadata:
+                project_metadata = {
+                    'id': project_id,
+                    'name': project_data.get('name', f'Project {project_id}'),
+                    'pages': len(frontend_pages),
+                    'lastModified': project_data.get('lastModified', datetime.datetime.now().isoformat())
+                }
+            
+            return {
+                'status': 'success',
+                'project': project_metadata,
+                'pages': frontend_pages
+            }
+        
+        # Fallback to old approach if new structure doesn't exist
         projects_dir = Path("manga_projects")
         projects_file = projects_dir / "projects.json"
         
@@ -1056,7 +1639,7 @@ async def get_project(project_id: str):
         if not project:
             raise HTTPException(status_code=404, detail={'status': 'error', 'message': f'Project {project_id} not found'})
             
-        # Load project pages
+        # Load project pages from old structure
         project_dir = projects_dir / project_id
         pages_file = project_dir / "pages.json"
         
@@ -1064,7 +1647,6 @@ async def get_project(project_id: str):
             with open(pages_file, 'r') as f:
                 pages = json.load(f)
         else:
-            # Initialize with empty page if no pages exist
             pages = [{
                 'id': 'page-1',
                 'panels': []
@@ -1075,6 +1657,7 @@ async def get_project(project_id: str):
             'project': project,
             'pages': pages
         }
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -1082,82 +1665,154 @@ async def get_project(project_id: str):
 
 @app.put("/api/projects/{project_id}", response_model=Dict[str, Any])
 async def update_project(project_id: str, request: UpdateProjectRequest):
-    """Update a project's pages"""
+    """Update a project with complete panel data and maintain generation history"""
     try:
         pages = request.pages
         
+        # Load existing project structure or create new one
+        project_data = load_project_structure(project_id)
+        
+        if not project_data:
+            # Create new project structure
+            project_data = {
+                "id": project_id,
+                "name": f"Project {project_id}",
+                "created": datetime.datetime.now().isoformat(),
+                "lastModified": datetime.datetime.now().isoformat(),
+                "pages": [],
+                "characters": {},
+                "settings": {
+                    "defaultPanelSize": {"width": 512, "height": 512},
+                    "pageSize": {"width": 1500, "height": 2250}
+                }
+            }
+        
+        # Update pages while preserving generation history
+        updated_pages = []
+        
+        for page_index, page in enumerate(pages):
+            # Find existing page or create new one
+            existing_page = None
+            if page_index < len(project_data["pages"]):
+                existing_page = project_data["pages"][page_index]
+            
+            if not existing_page:
+                existing_page = {
+                    "id": page.get('id', f'page-{page_index + 1}'),
+                    "panels": []
+                }
+            
+            # Update panels while preserving generation history
+            updated_panels = []
+            
+            for panel in page.get('panels', []):
+                panel_index = panel.get('panelIndex', 0)
+                
+                # Find existing panel to preserve generation history
+                existing_panel = None
+                for ep in existing_page.get("panels", []):
+                    if ep.get("panelIndex") == panel_index:
+                        existing_panel = ep
+                        break
+                
+                if existing_panel:
+                    # Update existing panel while preserving generation history
+                    updated_panel = existing_panel.copy()
+                    
+                    # Update editable properties
+                    updated_panel.update({
+                        "id": panel.get("id", existing_panel.get("id")),
+                        "x": panel.get("x", existing_panel.get("x", 0)),
+                        "y": panel.get("y", existing_panel.get("y", 0)),
+                        "width": panel.get("width", existing_panel.get("width", 400)),
+                        "height": panel.get("height", existing_panel.get("height", 400)),
+                        "characterNames": panel.get("characterNames", []),
+                        "characterBoxes": panel.get("characterBoxes", []),
+                        "textBoxes": panel.get("textBoxes", []),
+                        "dialogues": panel.get("dialogues", []),
+                        "actions": panel.get("actions", []),
+                        "setting": panel.get("setting", ""),
+                        "prompt": panel.get("prompt", "")
+                    })
+                    
+                    # Keep generation history intact
+                    # (generations and activeGenerationId are preserved)
+                    
+                else:
+                    # Create new panel
+                    updated_panel = {
+                        "id": panel.get("id", f"panel-{panel_index}"),
+                        "x": panel.get("x", 50),
+                        "y": panel.get("y", 50),
+                        "width": panel.get("width", 400),
+                        "height": panel.get("height", 400),
+                        "panelIndex": panel_index,
+                        "characterNames": panel.get("characterNames", []),
+                        "characterBoxes": panel.get("characterBoxes", []),
+                        "textBoxes": panel.get("textBoxes", []),
+                        "dialogues": panel.get("dialogues", []),
+                        "actions": panel.get("actions", []),
+                        "setting": panel.get("setting", ""),
+                        "prompt": panel.get("prompt", ""),
+                        "activeGenerationId": None,
+                        "generations": {}
+                    }
+                
+                updated_panels.append(updated_panel)
+            
+            existing_page["id"] = page.get('id', existing_page.get("id"))
+            existing_page["panels"] = updated_panels
+            updated_pages.append(existing_page)
+        
+        # Update project structure
+        project_data["pages"] = updated_pages
+        project_data["lastModified"] = datetime.datetime.now().isoformat()
+        
+        # Save the updated project structure
+        save_project_structure(project_id, project_data)
+        
+        # Also update the projects metadata file
         projects_dir = Path("manga_projects")
         projects_file = projects_dir / "projects.json"
         
-        if not projects_file.exists():
-            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'No projects found'})
-            
-        with open(projects_file, 'r') as f:
-            projects = json.load(f)
-            
+        if projects_file.exists():
+            with open(projects_file, 'r') as f:
+                projects = json.load(f)
+        else:
+            projects = []
+        
+        # Find and update project metadata
         project_index = next((i for i, p in enumerate(projects) if p['id'] == project_id), None)
         
-        if project_index is None:
-            raise HTTPException(status_code=404, detail={'status': 'error', 'message': f'Project {project_id} not found'})
-            
-        # Update project metadata
-        projects[project_index]['pages'] = len(pages)
-        projects[project_index]['lastModified'] = datetime.datetime.now().isoformat()
+        project_metadata = {
+            'id': project_id,
+            'name': project_data.get('name', f'Project {project_id}'),
+            'pages': len(updated_pages),
+            'lastModified': project_data["lastModified"]
+        }
         
-        # Save updated projects metadata
+        if project_index is not None:
+            projects[project_index] = project_metadata
+        else:
+            projects.append(project_metadata)
+        
+        # Save projects metadata
         with open(projects_file, 'w') as f:
             json.dump(projects, f, indent=2)
-            
-        # Save project pages with panel data
-        project_dir = projects_dir / project_id
-        project_dir.mkdir(exist_ok=True)
         
-        # Process pages to ensure panel data is preserved
-        processed_pages = []
-        for page in pages:
-            processed_page = {
-                'id': page.get('id'),
-                'panels': []
-            }
-            
-            # Process each panel
-            for panel in page.get('panels', []):
-                # Keep all panel data but ensure JSON serializable
-                processed_panel = {
-                    'id': panel.get('id'),
-                    'x': panel.get('x'),
-                    'y': panel.get('y'),
-                    'width': panel.get('width'),
-                    'height': panel.get('height'),
-                    'imagePath': panel.get('imagePath'),
-                    'prompt': panel.get('prompt'),
-                    'setting': panel.get('setting'),
-                    'seed': panel.get('seed'),
-                    'panelIndex': panel.get('panelIndex'),
-                    'characterNames': panel.get('characterNames', []),
-                    'characterBoxes': panel.get('characterBoxes', []),
-                    'textBoxes': panel.get('textBoxes', []),
-                    'dialogues': panel.get('dialogues', []),
-                    'actions': panel.get('actions', [])
-                }
-                processed_page['panels'].append(processed_panel)
-            
-            processed_pages.append(processed_page)
-        
-        # Save pages to file
-        pages_file = project_dir / "pages.json"
-        with open(pages_file, 'w') as f:
-            json.dump(processed_pages, f, indent=2, cls=NumpyEncoder)
-            
         return {
             'status': 'success',
-            'project': projects[project_index],
-            'message': f'Saved {len(pages)} pages with {sum(len(p["panels"]) for p in processed_pages)} panels'
+            'project': project_metadata,
+            'message': f'Saved {len(updated_pages)} pages with {sum(len(p["panels"]) for p in updated_pages)} panels'
         }
+        
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error updating project: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
 
 @app.delete("/api/projects/{project_id}", response_model=Dict[str, Any])
 async def delete_project(project_id: str):
@@ -1187,7 +1842,6 @@ async def delete_project(project_id: str):
         # Delete project directory
         project_dir = projects_dir / project_id
         if project_dir.exists():
-            import shutil
             shutil.rmtree(project_dir)
             
         return {

@@ -26,13 +26,31 @@ import {
 import ModeStatusBar from './ModeStatusBar';
 import PanelAdjustmentHandles from './PanelAdjustmentHandles';
 import { API_ENDPOINT, normalizeImagePath } from '../config';
+import GenerationHistoryModal from './GenerationHistoryModal';
 
 
+// Update Character interface to include history
 export interface Character {
   name: string;
   descriptions: string[];
   hasEmbedding: boolean;
+  hasHistory?: boolean;  // NEW
   imageData?: string;
+  
+  // Generation history (NEW)
+  activeGenerationId?: string;
+  generations?: {
+    [generationId: string]: {
+      timestamp: string;
+      datetime: string;
+      seed: number;
+      imagePath: string;
+      embeddingPath?: string;
+      isActive: boolean;
+      hasEmbedding: boolean;
+      metadata?: any;
+    };
+  };
 }
 
 interface DialogueItem {
@@ -67,34 +85,41 @@ export interface Panel {
   generationQueued?: boolean;
   queueMessage?: string;
   
-  // Characters should remain as separate arrays as they might be 
-  // needed independently by the character management system
-  characterNames: string[];  // Keep for character identification
+  // Generation history (NEW)
+  activeGenerationId?: string;
+  generations?: {
+    [generationId: string]: {
+      timestamp: string;
+      datetime: string;
+      seed: number;
+      width: number;
+      height: number;
+      imagePath: string;
+      prompt: string;
+      isActive: boolean;
+      metadata?: any;
+    };
+  };
   
-  // Character boxes for positioning with drawing capability
+  // Panel content definition
+  characterNames: string[];
   characterBoxes?: {
-    character: string;    // Must match a name in characterNames
-    x: number;           // Relative coordinates (0-1)
+    character: string;
+    x: number;
     y: number;
     width: number;
     height: number;
-    color: string;       // For UI display
+    color: string;
   }[];
-  
-  // Text boxes for dialogue
   textBoxes?: {
-    text: string;        // The content of the text/dialogue
-    x: number;           // Relative coordinates (0-1)
+    text: string;
+    x: number;
     y: number;
     width: number;
     height: number;
   }[];
-  
-  // Keep dialogues as they provide structure for character attribution
-  dialogues: DialogueItem[];  // {character: string, text: string}
-  
-  // Actions for scene descriptions
-  actions: ActionItem[];      // {text: string}
+  dialogues: DialogueItem[];
+  actions: ActionItem[];
 }
 
 export interface Page {
@@ -118,6 +143,7 @@ interface MangaEditorProps {
   setPages?: (pages: Page[]) => void; // Add this
   onSaveProject?: (projectId: string, pages: Page[]) => void; // Add this
   onShowProjectManager?: () => void; // Add this
+  onReloadProject?: () => Promise<void>;
 }
 
 // Then update the function declaration to use these props
@@ -129,7 +155,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   pages = [],
   setPages,
   onSaveProject,
-  onShowProjectManager
+  onShowProjectManager,
+  onReloadProject,
 }) => {
   // Page state
   const [pageSize, setPageSize] = useState({ width: 1500, height: 2250 }); // A4 proportions
@@ -168,6 +195,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   const focusedPanel = isPanelFocusMode && focusedPanelId ? 
     panels.find(p => p.id === focusedPanelId) : null;
   const currentScale = isPanelFocusMode ? focusScale : scale;
+  // Generation History
+  const [showGenerationHistory, setShowGenerationHistory] = useState<boolean>(false);
 
   // Character and Text Boxes
   const [isDrawingCharacterBox, setIsDrawingCharacterBox] = useState<boolean>(false);
@@ -1555,8 +1584,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       const pixelWidth = Math.round(panel.width);
       const pixelHeight = Math.round(panel.height);
       
-      // Format character boxes in the way the API expects
-      // The API expects arrays of [x, y, x+width, y+height] for bounding boxes
+      // Format character boxes and text boxes
       const formattedCharacterBoxes = panel.characterBoxes?.map(box => ({
         character: box.character,
         x: box.x,
@@ -1566,7 +1594,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         color: box.color
       })) || [];
       
-      // Format text boxes in the way the API expects
       const formattedTextBoxes = panel.textBoxes?.map(box => ({
         text: box.text,
         x: box.x,
@@ -1575,7 +1602,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         height: box.height
       })) || [];
       
-      // Prepare the API data using snake_case for backend and camelCase for frontend
+      // Prepare the API data
       const apiData = {
         projectId: currentProject?.id || 'default',
         prompt: panel.prompt || '',
@@ -1593,7 +1620,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       
       console.log("Sending panel data to API:", apiData);
       
-      // Call the API
+      // Call the NEW API endpoint
       const response = await fetch(`${apiEndpoint}/generate_panel`, {
         method: 'POST',
         headers: {
@@ -1608,21 +1635,16 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       
       const data = await response.json();
       
-      // Check if the request was queued (models still initializing)
       if (data.status === 'queued') {
-        // Show a message that the request is queued
+        // Handle queued generation (same as before)
         console.log(`Panel generation queued. Request ID: ${data.request_id}`);
         showStatusMessage('Panel generation queued. Please wait...', 'info');
         
-        // Setup polling to check status
         const requestId = data.request_id;
-        
-        // Create an interval to check the status
         const checkInterval = setInterval(() => {
           checkPanelStatus(requestId, selectedPanelId);
-        }, 1000); // Check every second
+        }, 1000);
         
-        // Save the request info
         setQueuedPanelRequests(prev => ({
           ...prev,
           [selectedPanelId]: {
@@ -1632,7 +1654,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
           }
         }));
         
-        // Update the panel with "queued" status
         const newPanels = [...panels];
         newPanels[panelIndex] = {
           ...newPanels[panelIndex],
@@ -1644,15 +1665,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         updatePanelsForCurrentPage(newPanels);
         
       } else if (data.status === 'success') {
-        // Handle immediate success (models were already initialized)
+        // Handle immediate success with NEW generation history approach
         handlePanelGenerationComplete(data, selectedPanelId);
         showStatusMessage('Panel generated successfully', 'success');
       } else {
-        // Handle error
         console.error('Error generating panel:', data.message);
         showStatusMessage(`Error: ${data.message}`, 'error');
         
-        // Mark the panel as not generating
         const newPanels = [...panels];
         newPanels[panelIndex].isGenerating = false;
         updatePanelsForCurrentPage(newPanels);
@@ -1661,7 +1680,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       console.error('Error calling API:', error);
       showStatusMessage(`Error: ${error instanceof Error ? error.message : String(error)}`, 'error');
       
-      // Mark the panel as not generating
       const newPanels = [...panels];
       newPanels[panelIndex].isGenerating = false;
       updatePanelsForCurrentPage(newPanels);
@@ -1725,24 +1743,53 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   
   // Handle successful panel generation completion
   const handlePanelGenerationComplete = (data: any, panelId: string) => {
-    // Find the panel
     const panelIndex = panels.findIndex(p => p.id === panelId);
     if (panelIndex === -1) return;
     
-    // Update the panel with the generated image
     const newPanels = [...panels];
-    newPanels[panelIndex] = {
-      ...newPanels[panelIndex],
-      imageData: data.imageData,          // Keep immediate display data
-      imagePath: data.imagePath ? normalizeImagePath(data.imagePath) : data.imageData,
-      prompt: data.prompt || newPanels[panelIndex].prompt,
-      isGenerating: false,
-      generationQueued: false,
-      seed: data.seed // Store the used seed
-    };
+    const panel = newPanels[panelIndex];
+    
+    // Update panel with new generation data
+    panel.imageData = data.imageData;
+    panel.imagePath = data.imagePath ? normalizeImagePath(data.imagePath) : data.imageData;
+    panel.prompt = data.prompt || panel.prompt;
+    panel.isGenerating = false;
+    panel.generationQueued = false;
+    panel.seed = data.seed;
+    
+    // Add generation history support
+    if (data.generationId) {
+      if (!panel.generations) {
+        panel.generations = {};
+      }
+      
+      // Add new generation to history
+      panel.generations[data.generationId] = {
+        timestamp: data.generationId,
+        datetime: new Date().toISOString(),
+        seed: data.seed,
+        width: data.width,
+        height: data.height,
+        imagePath: data.imagePath,
+        prompt: data.prompt,
+        isActive: true,
+        metadata: {
+          model_version: "drawatoon-v1",
+          inference_steps: 30,
+          guidance_scale: 7.5
+        }
+      };
+      
+      // Set all other generations as inactive
+      for (const genId in panel.generations) {
+        panel.generations[genId].isActive = (genId === data.generationId);
+      }
+      
+      panel.activeGenerationId = data.generationId;
+    }
     
     updatePanelsForCurrentPage(newPanels);
-  };
+  };  
   
   // Handler for saving the page
   const handleSavePage = async () => {
@@ -2495,6 +2542,24 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
           </div>
         </div>
       </div>
+    );
+  };
+
+  const renderPanelHistoryButton = () => {
+    if (!selectedPanel || !selectedPanel.generations || Object.keys(selectedPanel.generations).length === 0) {
+      return null;
+    }
+    
+    return (
+      <button
+        className="px-3 py-2 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 flex items-center"
+        onClick={() => setShowGenerationHistory(true)}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        History ({Object.keys(selectedPanel.generations).length})
+      </button>
     );
   };
 
@@ -3359,18 +3424,23 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                     </div>
                   </div>
                   
-                  {/* Generate Panel Button */}
-                  <button
-                    className="w-full px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
-                    onClick={handleGeneratePanel}
-                    disabled={selectedPanel.isGenerating}
-                  >
-                    {selectedPanel.isGenerating 
-                      ? 'Generating...' 
-                      : selectedPanel.imageData 
-                        ? 'Regenerate Panel' 
-                        : 'Generate Panel'}
-                  </button>
+                  <div className="space-y-2">
+                    {/* History button */}
+                    {renderPanelHistoryButton()}
+                    
+                    {/* Generate Panel Button */}
+                    <button
+                      className="w-full px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
+                      onClick={handleGeneratePanel}
+                      disabled={selectedPanel.isGenerating}
+                    >
+                      {selectedPanel.isGenerating 
+                        ? 'Generating...' 
+                        : selectedPanel.imageData 
+                          ? 'Generate New Version' 
+                          : 'Generate Panel'}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -3434,6 +3504,26 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {/* Generation History Modal */}
+      {showGenerationHistory && selectedPanel && (
+        <GenerationHistoryModal
+          isOpen={showGenerationHistory}
+          onClose={() => setShowGenerationHistory(false)}
+          type="panel"
+          projectId={currentProject?.id}
+          panelIndex={selectedPanel.panelIndex}
+          apiEndpoint={apiEndpoint}
+          onSelectionChanged={async (timestamp) => {
+            // Close the modal first
+            setShowGenerationHistory(false);
+            
+            // Reload project data from parent
+            if (onReloadProject) {
+              await onReloadProject();
+            }
+          }}
+        />
       )}
     </div>
   );
