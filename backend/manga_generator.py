@@ -11,6 +11,7 @@ from diffusers import PixArtSigmaPipeline
 from torch.nn.utils.rnn import pad_sequence
 import torch.serialization
 from numpy._core.multiarray import _reconstruct
+from diffusers.models.modeling_outputs import Transformer2DModelOutput
 
 class PanelEstimator:
     """Estimates appropriate number of panels for a scene based on content analysis"""
@@ -440,6 +441,14 @@ class MangaGenerator:
             """
             The modified forward method that ensures the XOR condition is properly handled.
             """
+            # Check for stored parameters first (our addition)
+            if text_bboxes is None and hasattr(self, '_temp_text_bboxes'):
+                text_bboxes = self._temp_text_bboxes
+            if character_bboxes is None and hasattr(self, '_temp_character_bboxes'):
+                character_bboxes = self._temp_character_bboxes
+            if reference_embeddings is None and hasattr(self, '_temp_reference_embeddings'):
+                reference_embeddings = self._temp_reference_embeddings
+            
             # Debug info
             print(f"Modified forward called with:")
             print(f"ip_hidden_states: {'Present' if ip_hidden_states is not None else 'None'}")
@@ -467,7 +476,28 @@ class MangaGenerator:
             # For the original code path, if we're using bboxes
             if ip_hidden_states is None and (text_bboxes is not None or character_bboxes is not None or reference_embeddings is not None):
                 # Let the IP adapter generate the embeddings
-                ip_hidden_states, ip_attention_mask = self.ip_adapter(text_bboxes, character_bboxes, reference_embeddings, cfg_on_10_percent)
+                print(f"Calling IP adapter with:")
+                print(f"  text_bboxes: {text_bboxes}")
+                print(f"  character_bboxes: {character_bboxes}")
+                if reference_embeddings:
+                    print(f"  reference_embeddings shapes: {[[emb.shape if hasattr(emb, 'shape') else 'N/A' for emb in batch] for batch in reference_embeddings]}")
+                try:
+                    ip_hidden_states, ip_attention_mask = self.ip_adapter(text_bboxes, character_bboxes, reference_embeddings, cfg_on_10_percent)
+                    print(f"IP adapter succeeded, output shape: {ip_hidden_states.shape}")
+                    
+                    # Handle CFG: if batch_size > 1, duplicate IP adapter outputs
+                    if batch_size > ip_hidden_states.shape[0]:
+                        print(f"Duplicating IP adapter outputs for CFG: {ip_hidden_states.shape[0]} -> {batch_size}")
+                        # Duplicate for CFG (typically batch_size=2 for negative+positive)
+                        ip_hidden_states = ip_hidden_states.repeat(batch_size, 1, 1)
+                        ip_attention_mask = ip_attention_mask.repeat(batch_size, 1)
+                        print(f"After duplication: ip_hidden_states shape: {ip_hidden_states.shape}")
+                        
+                except Exception as e:
+                    print(f"IP adapter failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise e
             
             # 1. Input
             
@@ -496,7 +526,11 @@ class MangaGenerator:
                 encoder_hidden_states = encoder_hidden_states.view(batch_size, -1, hidden_states.shape[-1])
 
             # 2. Blocks
-            for block in self.transformer_blocks:
+            for i, block in enumerate(self.transformer_blocks):
+                print(f"Processing transformer block {i}, hidden_states shape: {hidden_states.shape}")
+                if ip_hidden_states is not None:
+                    print(f"  ip_hidden_states shape: {ip_hidden_states.shape}")
+                
                 if torch.is_grad_enabled() and self.gradient_checkpointing:
                     def create_custom_forward(module, return_dict=None):
                         def custom_forward(*inputs):
@@ -507,31 +541,50 @@ class MangaGenerator:
                         return custom_forward
 
                     ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
-                    hidden_states = torch.utils.checkpoint.checkpoint(
-                        create_custom_forward(block),
-                        hidden_states,
-                        attention_mask,
-                        encoder_hidden_states,
-                        encoder_attention_mask,
-                        ip_hidden_states,
-                        ip_attention_mask,
-                        timestep,
-                        cross_attention_kwargs,
-                        None,
-                        **ckpt_kwargs,
-                    )
+                    try:
+                        hidden_states = torch.utils.checkpoint.checkpoint(
+                            create_custom_forward(block),
+                            hidden_states,
+                            attention_mask,
+                            encoder_hidden_states,
+                            encoder_attention_mask,
+                            ip_hidden_states,
+                            ip_attention_mask,
+                            timestep,
+                            cross_attention_kwargs,
+                            None,
+                            **ckpt_kwargs,
+                        )
+                    except Exception as e:
+                        print(f"Error in transformer block {i} with checkpoint: {e}")
+                        raise e
                 else:
-                    hidden_states = block(
-                        hidden_states,
-                        attention_mask=attention_mask,
-                        encoder_hidden_states=encoder_hidden_states,
-                        encoder_attention_mask=encoder_attention_mask,
-                        ip_hidden_states=ip_hidden_states,
-                        ip_attention_mask=ip_attention_mask,
-                        timestep=timestep,
-                        cross_attention_kwargs=cross_attention_kwargs,
-                        class_labels=None,
-                    )
+                    try:
+                        hidden_states = block(
+                            hidden_states,
+                            attention_mask=attention_mask,
+                            encoder_hidden_states=encoder_hidden_states,
+                            encoder_attention_mask=encoder_attention_mask,
+                            ip_hidden_states=ip_hidden_states,
+                            ip_attention_mask=ip_attention_mask,
+                            timestep=timestep,
+                            cross_attention_kwargs=cross_attention_kwargs,
+                            class_labels=None,
+                        )
+                    except Exception as e:
+                        print(f"Error in transformer block {i}: {e}")
+                        print(f"  hidden_states shape: {hidden_states.shape}")
+                        print(f"  ip_hidden_states shape: {ip_hidden_states.shape if ip_hidden_states is not None else 'None'}")
+                        print(f"  encoder_hidden_states shape: {encoder_hidden_states.shape}")
+                        import traceback
+                        traceback.print_exc()
+                        raise e
+                
+                # Only print for first few blocks to avoid spam
+                if i < 3:
+                    print(f"  Block {i} completed, output shape: {hidden_states.shape}")
+                elif i == 3:
+                    print(f"  (Suppressing further block output for brevity...)")
 
             # 3. Output
             shift, scale = (
@@ -560,7 +613,6 @@ class MangaGenerator:
             if not return_dict:
                 return (outputs,)
 
-            from diffusers.models.modeling_outputs import Transformer2DModelOutput
             return Transformer2DModelOutput(sample=outputs)
         
         # Replace the transformer's forward method with our modified version
@@ -913,24 +965,6 @@ class MangaGenerator:
         if seed is not None:
             generator = torch.Generator(device=self.device).manual_seed(seed)
         
-        # Prepare inputs for IPAdapter
-        # Use IP params if provided, otherwise prepare them from panel data
-        if ip_params is not None:
-            text_bboxes = ip_params.get('text_bboxes', [])
-            character_bboxes = ip_params.get('character_bboxes', [])
-            reference_embeddings = ip_params.get('reference_embeddings', [])
-            
-            # Ensure they're properly wrapped for batch processing
-            if text_bboxes and not isinstance(text_bboxes[0], list):
-                text_bboxes = [text_bboxes]
-            if character_bboxes and not isinstance(character_bboxes[0], list):
-                character_bboxes = [character_bboxes]
-            if reference_embeddings and not isinstance(reference_embeddings[0], list):
-                reference_embeddings = [reference_embeddings]
-        else:
-            # Prepare inputs for IPAdapter from panel data
-            text_bboxes, character_bboxes, reference_embeddings = self.prepare_ip_adapter_inputs(panel_data)
-        
         # Use provided dimensions or default to 512x512 if none specified
         if width is None or height is None:
             width = 512
@@ -943,13 +977,62 @@ class MangaGenerator:
         print(f"Panel dimensions: {width}x{height} (requested), {gen_width}x{gen_height} (generation)")
         print(f"Output path: {output_path}")
         
-        # Report what we're using
-        char_count = len(character_bboxes[0]) if character_bboxes and character_bboxes[0] else 0
-        text_count = len(text_bboxes[0]) if text_bboxes and text_bboxes[0] else 0
-        print(f"Using {char_count} character references and {text_count} text boxes")
+        # MINIMAL CHANGE: Store IP parameters on transformer before pipeline call
+        transformer = self.pipe.transformer
+        
+        if ip_params is not None:
+            text_bboxes = ip_params.get('text_bboxes', [])
+            character_bboxes = ip_params.get('character_bboxes', [])
+            reference_embeddings = ip_params.get('reference_embeddings', [])
+            
+            # Convert numpy arrays to PyTorch tensors for reference embeddings
+            if reference_embeddings:
+                converted_embeddings = []
+                for emb in reference_embeddings:
+                    if emb is not None:
+                        if isinstance(emb, np.ndarray):
+                            # Convert numpy array to PyTorch tensor
+                            emb_tensor = torch.from_numpy(emb).to(
+                                device=self.device,
+                                dtype=torch.float16  # Match model dtype
+                            )
+                            converted_embeddings.append(emb_tensor)
+                        else:
+                            # Ensure existing tensors have correct device and dtype
+                            emb_tensor = emb.to(device=self.device, dtype=torch.float16)
+                            converted_embeddings.append(emb_tensor)
+                    else:
+                        converted_embeddings.append(None)
+                reference_embeddings = converted_embeddings
+            
+            # Convert to batch format expected by IP adapter
+            # Your IP adapter expects: [[batch1_items], [batch2_items], ...]
+            # So wrap each list in another list for batch_size=1
+            transformer._temp_text_bboxes = [text_bboxes]  # [[...]] format
+            transformer._temp_character_bboxes = [character_bboxes]  # [[...]] format  
+            transformer._temp_reference_embeddings = [reference_embeddings]  # [[...]] format
+            
+            # Report what we're using
+            char_count = len(character_bboxes) if character_bboxes else 0
+            text_count = len(text_bboxes) if text_bboxes else 0
+            print(f"Using {char_count} character references and {text_count} text boxes")
+            print(f"Stored parameters on transformer for IP adapter")
+            print(f"  text_bboxes format: {len(transformer._temp_text_bboxes)} batches, {len(transformer._temp_text_bboxes[0]) if transformer._temp_text_bboxes else 0} items")
+            print(f"  character_bboxes format: {len(transformer._temp_character_bboxes)} batches, {len(transformer._temp_character_bboxes[0]) if transformer._temp_character_bboxes else 0} items")
+            print(f"  reference_embeddings format: {len(transformer._temp_reference_embeddings)} batches, {len(transformer._temp_reference_embeddings[0]) if transformer._temp_reference_embeddings else 0} items")
+            if reference_embeddings:
+                print(f"  reference_embeddings types: {[type(emb).__name__ if emb is not None else 'None' for emb in reference_embeddings]}")
+                print(f"  reference_embeddings devices: {[emb.device if hasattr(emb, 'device') else 'N/A' for emb in reference_embeddings]}")
+                print(f"  reference_embeddings shapes: {[emb.shape if hasattr(emb, 'shape') else 'N/A' for emb in reference_embeddings]}")
+                print(f"  reference_embeddings dtypes: {[emb.dtype if hasattr(emb, 'dtype') else 'N/A' for emb in reference_embeddings]}")
+        else:
+            # Clear any existing stored parameters
+            transformer._temp_text_bboxes = None
+            transformer._temp_character_bboxes = None
+            transformer._temp_reference_embeddings = None
         
         try:
-            # Generate image at optimized dimensions
+            # Use the standard pipeline (which was working!)
             image = self.pipe(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
@@ -957,12 +1040,7 @@ class MangaGenerator:
                 guidance_scale=7.5,
                 width=gen_width,
                 height=gen_height,
-                generator=generator,
-                # Pass properly wrapped IPAdapter inputs
-                text_bboxes=text_bboxes,
-                character_bboxes=character_bboxes,
-                reference_embeddings=reference_embeddings,
-                cfg_on_10_percent=False
+                generator=generator
             ).images[0]
             
             # Upscale to requested dimensions if necessary
@@ -985,12 +1063,7 @@ class MangaGenerator:
                     guidance_scale=7.5,
                     width=gen_width,
                     height=gen_height,
-                    generator=generator,
-                    # Same inputs as above
-                    text_bboxes=text_bboxes,
-                    character_bboxes=character_bboxes,
-                    reference_embeddings=reference_embeddings,
-                    cfg_on_10_percent=False
+                    generator=generator
                 ).images[0]
                 
                 # Upscale to requested dimensions
@@ -1002,6 +1075,15 @@ class MangaGenerator:
                 image = Image.new('RGB', (width, height), color='white')
                 draw = ImageDraw.Draw(image)
                 draw.text((width//2-100, height//2), "Generation error", fill='black')
+        
+        finally:
+            # ALWAYS clean up stored parameters
+            if hasattr(transformer, '_temp_text_bboxes'):
+                delattr(transformer, '_temp_text_bboxes')
+            if hasattr(transformer, '_temp_character_bboxes'):
+                delattr(transformer, '_temp_character_bboxes')
+            if hasattr(transformer, '_temp_reference_embeddings'):
+                delattr(transformer, '_temp_reference_embeddings')
         
         # Save the image
         image.save(output_path)
@@ -1025,7 +1107,6 @@ class MangaGenerator:
                 panel_data_json['characters_with_embeddings'] = [
                     character for character in characters if self.get_character_embedding(character) is not None
                 ]
-                panel_data_json['text_boxes_count'] = text_count
                 json.dump(panel_data_json, f, indent=2)
         
         return output_path, panel_data
