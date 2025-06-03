@@ -284,7 +284,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   // Add this effect to handle transformer for selected boxes
   useEffect(() => {
     if (selectedBoxType && selectedBoxIndex !== null && transformerBoxRef.current && stageRef.current) {
-      // Find the specific box node - need to target the right panel first
+      // Always show transformer when a box is selected, regardless of mode
       const panelBoxes = stageRef.current.findOne(`#panel-boxes-${selectedPanelId}`);
       if (panelBoxes) {
         const node = panelBoxes.findOne(`.${selectedBoxType}-box-${selectedBoxIndex}`);
@@ -436,6 +436,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   // Handler for selecting a panel
   const handlePanelSelect = (panelId: string) => {
     setSelectedPanelId(panelId);
+    // Clear box selection when switching panels
+    setSelectedBoxType(null);
+    setSelectedBoxIndex(null);
   };
 
   const updatePanelsForCurrentPage = (newPanels: Panel[]) => {
@@ -931,7 +934,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter((_, i) => i !== index);
     } else if (type === 'text') {
       if (!updatedPanels[panelIndex].textBoxes) return;
+      // Remove the text box
       updatedPanels[panelIndex].textBoxes = updatedPanels[panelIndex].textBoxes.filter((_, i) => i !== index);
+      
+      // ALSO remove the corresponding dialogue
+      if (updatedPanels[panelIndex].dialogues && updatedPanels[panelIndex].dialogues[index]) {
+        updatedPanels[panelIndex].dialogues.splice(index, 1);
+      }
     }
     
     updatePanelsForCurrentPage(updatedPanels);
@@ -1058,17 +1067,19 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         defaultHeight = 0.6;
       }
       
-      // Add the character box
-      panel.characterBoxes.push({
+      // Add the character box with a stable ID
+      const newCharacterBox = {
         character: character.name,
         x: defaultX,
         y: defaultY,
         width: defaultWidth,
         height: defaultHeight,
         color: characterColor
-      });
+      };
       
-      // AUTO-SELECT THE NEW CHARACTER BOX
+      panel.characterBoxes.push(newCharacterBox);
+      
+      // AUTO-SELECT THE NEW CHARACTER BOX - use the new index after push
       const newBoxIndex = panel.characterBoxes.length - 1;
       setSelectedBoxType('character');
       setSelectedBoxIndex(newBoxIndex);
@@ -1076,7 +1087,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     }
     
     updatePanelsForCurrentPage(updatedPanels);
-  };  
+  };
   
   // Handler for removing a character from the selected panel
   const handleRemoveCharacter = (index: number) => {
@@ -1109,27 +1120,27 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
     if (panelIndex === -1) return;
     
-    // Add a new dialogue
     const updatedPanels = [...panels];
-    const dialogues = updatedPanels[panelIndex].dialogues;
+    const currentDialogues = updatedPanels[panelIndex].dialogues || [];
+    const currentTextBoxes = updatedPanels[panelIndex].textBoxes || [];
     
     // Create a default position for the dialogue
     let defaultX, defaultY, defaultWidth, defaultHeight;
     
-    if (dialogues.length === 0) {
+    if (currentDialogues.length === 0) {
       // Top right
       defaultX = 0.6;
       defaultY = 0.1;
       defaultWidth = 0.3;
       defaultHeight = 0.2;
-    } else if (dialogues.length === 1) {
+    } else if (currentDialogues.length === 1) {
       // Middle left
       defaultX = 0.1;
       defaultY = 0.4;
       defaultWidth = 0.3;
       defaultHeight = 0.2;
     } else {
-      // Bottom right
+      // Bottom right, or spread them out
       defaultX = 0.6;
       defaultY = 0.7;
       defaultWidth = 0.3;
@@ -1137,11 +1148,14 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     }
     
     // Add to dialogues array
-    updatedPanels[panelIndex].dialogues.push({ character: '', text: '' });
+    updatedPanels[panelIndex].dialogues = [
+      ...currentDialogues,
+      { character: '', text: '' }
+    ];
     
-    // Also add to textBoxes array
+    // Add corresponding text box
     updatedPanels[panelIndex].textBoxes = [
-      ...(updatedPanels[panelIndex].textBoxes || []),
+      ...currentTextBoxes,
       {
         text: '',
         x: defaultX,
@@ -1152,6 +1166,12 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     ];
     
     updatePanelsForCurrentPage(updatedPanels);
+    
+    // Auto-select the new text box
+    const newBoxIndex = updatedPanels[panelIndex].textBoxes.length - 1;
+    setSelectedBoxType('text');
+    setSelectedBoxIndex(newBoxIndex);
+    setPanelMode('adjust');
   };
 
   const handleRemoveDialogue = (index: number) => {
@@ -1179,16 +1199,24 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
     if (panelIndex === -1) return;
     
-    // Update the dialogue
     const updatedPanels = [...panels];
+    
+    // Ensure dialogues array exists and has the right length
+    if (!updatedPanels[panelIndex].dialogues) {
+      updatedPanels[panelIndex].dialogues = [];
+    }
+    
+    // Ensure the dialogue exists at this index
+    if (!updatedPanels[panelIndex].dialogues[index]) {
+      updatedPanels[panelIndex].dialogues[index] = { character: '', text: '' };
+    }
+    
+    // Update the dialogue
     updatedPanels[panelIndex].dialogues[index][field] = value;
     
-    // Also update the corresponding textBox if it exists
-    if (updatedPanels[panelIndex].textBoxes && 
-        updatedPanels[panelIndex].textBoxes[index]) {
-      if (field === 'text') {
-        updatedPanels[panelIndex].textBoxes[index].text = value;
-      }
+    // If updating text, also update the corresponding textBox
+    if (field === 'text' && updatedPanels[panelIndex].textBoxes && updatedPanels[panelIndex].textBoxes[index]) {
+      updatedPanels[panelIndex].textBoxes[index].text = value;
     }
     
     updatePanelsForCurrentPage(updatedPanels);
@@ -2851,7 +2879,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                               strokeWidth={selectedBoxType === 'character' && selectedBoxIndex === index && panel.id === selectedPanelId ? 3 : 2}
                               dash={[5, 5]}
                               fill={box.color + '33'}
-                              draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
+                              draggable={panel.id === selectedPanelId}
                               onClick={() => {
                                 if (panel.id === selectedPanelId) {
                                   handleBoxSelect('character', index);
@@ -2880,7 +2908,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                               strokeWidth={selectedBoxType === 'text' && selectedBoxIndex === index && panel.id === selectedPanelId ? 3 : 2}
                               dash={[5, 5]}
                               fill="#FFFFFF88"
-                              draggable={panel.id === selectedPanelId && panelMode === 'adjust'}
+                              draggable={panel.id === selectedPanelId}
                               onClick={() => {
                                 if (panel.id === selectedPanelId) {
                                   handleBoxSelect('text', index);
@@ -3011,25 +3039,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                 <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
                 
                 <div className="space-y-6 max-w-full">
-                  {/* Panel Mode Toggle */}
-                  <div className="pb-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold mb-2">Panel Mode</h3>
-                    <div className="flex gap-2">
-                      <button
-                        className={`flex-1 px-3 py-2 rounded-md flex items-center justify-center ${
-                          panelMode === 'adjust' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'
-                        }`}
-                        onClick={() => setPanelMode('adjust')}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M7 9a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9z" />
-                          <path d="M5 3a2 2 0 00-2 2v6a2 2 0 002 2V5h8a2 2 0 00-2-2H5z" />
-                        </svg>
-                        Adjust Panel
-                      </button>
-                    </div>
-                  </div>
-
                   {/* Character Section with Box Drawing capability */}
                   <div className="pb-4 border-b border-gray-200">
                     <div className="flex justify-between items-center mb-2">
@@ -3127,27 +3136,15 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                             >
                               <div className="w-4 h-4 mr-2" style={{backgroundColor: box.color}}></div>
                               <span className="flex-1">{box.character}</span>
-                              <div className="flex space-x-2">
-                                <button
-                                  className="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleBoxSelect('character', idx);
-                                    setPanelMode('adjust');
-                                  }}
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteBox('character', idx);
-                                  }}
-                                >
-                                  Delete
-                                </button>
-                              </div>
+                              <button
+                                className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteBox('character', idx);
+                                }}
+                              >
+                                Delete
+                              </button>
                             </div>
                           ))}
                         </div>
@@ -3173,70 +3170,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                         >
                           Add Dialogue
                         </button>
-                        
-                        <button
-                          className={`px-3 py-2 rounded-md flex items-center ${panelMode === 'text-box' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
-                          onClick={() => {
-                            if (panelMode === 'text-box') {
-                              setPanelMode('adjust');
-                            } else {
-                              setPanelMode('text-box');
-                              setSelectedBoxType(null);
-                              setSelectedBoxIndex(null);
-                            }
-                          }}
-                        >
-                          <MessageSquare size={16} className="mr-2" />
-                          {panelMode === 'text-box' ? 'Cancel' : 'Draw Text Box'}
-                        </button>
                       </div>
                     </div>
-                    
-                    {/* Text Boxes section */}
-                    {selectedPanel.textBoxes && selectedPanel.textBoxes.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="font-medium text-sm mb-2">Text Boxes:</h4>
-                        <div className="max-h-40 overflow-y-auto space-y-2">
-                          {selectedPanel.textBoxes.map((box, idx) => (
-                            <div 
-                              key={idx} 
-                              className={`flex items-center text-sm p-2 rounded-md border ${
-                                selectedBoxType === 'text' && selectedBoxIndex === idx
-                                  ? 'border-indigo-500 bg-indigo-50'
-                                  : 'border-gray-200 hover:bg-gray-50'
-                              }`}
-                              onClick={() => {
-                                handleBoxSelect('text', idx);
-                                setPanelMode('adjust');
-                              }}
-                            >
-                              <span className="flex-1">Text Box {idx + 1}</span>
-                              <div className="flex space-x-2">
-                                <button
-                                  className="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleBoxSelect('text', idx);
-                                    setPanelMode('adjust');
-                                  }}
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteBox('text', idx);
-                                  }}
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                     
                     {panelMode === 'text-box' && (
                       <div className="mt-3 p-3 bg-indigo-50 rounded-md border border-indigo-200">
@@ -3245,54 +3180,104 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                       </div>
                     )}
                     
-                    {/* Dialogues */}
+                    {/* Combined Text Boxes and Dialogues */}
                     <div className="space-y-4 mt-4">
-                      {selectedPanel.dialogues.map((dialogue, index) => (
-                        <div key={`dialogue-${index}`} className="p-3 bg-gray-50 rounded-md border border-gray-200">
-                          <div className="mb-2">
-                            <label className="block text-sm font-medium text-black mb-1">Character</label>
-                            <select
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                              value={dialogue.character}
-                              onChange={(e) => handleUpdateDialogue(index, 'character', e.target.value)}
-                            >
-                              <option value="">Select Character...</option>
-                              {selectedPanel.characterNames.map(name => (
-                                <option key={name} value={name}>{name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          
-                          <div className="mb-2">
-                            <label className="block text-sm font-medium text-black mb-1">Text</label>
-                            <textarea
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                              value={dialogue.text}
-                              onChange={(e) => handleUpdateDialogue(index, 'text', e.target.value)}
-                              placeholder="What they say..."
-                              rows={2}
-                            />
-                          </div>
-                          
-                          <button
-                            onClick={() => handleRemoveDialogue(index)}
-                            className="text-red-500 hover:text-red-700"
+                      {selectedPanel.dialogues.map((dialogue, index) => {
+                        const textBox = selectedPanel.textBoxes?.[index];
+                        const isSelected = selectedBoxType === 'text' && selectedBoxIndex === index;
+                        
+                        return (
+                          <div 
+                            key={`dialogue-${index}`} 
+                            className={`p-3 rounded-md border transition-colors cursor-pointer ${
+                              isSelected 
+                                ? 'border-indigo-500 bg-indigo-50' 
+                                : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                            }`}
+                            onClick={() => {
+                              handleBoxSelect('text', index);
+                              setPanelMode('adjust');
+                            }}
                           >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex items-center">
+                                <span className="text-sm font-medium text-gray-700 mr-2">
+                                  Text Box {index + 1}
+                                </span>
+                                {textBox && (
+                                  <span className="text-xs text-gray-500">
+                                    ({Math.round(textBox.x * 100)}%, {Math.round(textBox.y * 100)}%)
+                                  </span>
+                                )}
+                                {isSelected && (
+                                  <span className="ml-2 px-2 py-1 text-xs bg-indigo-200 text-indigo-800 rounded">
+                                    Selected
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteBox('text', index);
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                            
+                            <div className="mb-2">
+                              <label className="block text-sm font-medium text-black mb-1">Character</label>
+                              <select
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                value={dialogue.character}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateDialogue(index, 'character', e.target.value);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <option value="">Select Character...</option>
+                                {selectedPanel.characterNames.map(name => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            
+                            <div className="mb-2">
+                              <label className="block text-sm font-medium text-black mb-1">Text</label>
+                              <textarea
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                value={dialogue.text}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateDialogue(index, 'text', e.target.value);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                placeholder="What they say..."
+                                rows={2}
+                              />
+                            </div>
+                            
+                            {!textBox && (
+                              <div className="text-xs text-red-600 mt-1">
+                                ⚠️ Missing text box - click "Draw Text Box" to add positioning
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                       
                       {selectedPanel.dialogues.length === 0 && (
-                        <div className="text-black italic">No dialogues added</div>
+                        <div className="text-gray-500 italic text-center py-4">
+                          No dialogues added. Click "Add Dialogue" to get started.
+                        </div>
                       )}
                     </div>
                   </div>
                   
                   {/* Panel Settings */}
-                  <div className="pb-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold mb-2">Panel Settings</h3>
-                    
+                  <div className="pb-2 border-b border-gray-200">
                     <div className="flex flex-wrap mb-4 max-w-xl">
                       <div className="pr-4">
                         <label className="block text-sm font-medium text-black mb-1">Panel Index</label>
@@ -3337,18 +3322,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                     </div>
                     
                     <div className="mb-4">
-                      <label className="block text-sm font-medium text-black mb-1">Setting</label>
-                      <input
-                        type="text"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        value={selectedPanel.setting || ''}
-                        onChange={(e) => handleUpdateSetting(e.target.value)}
-                        placeholder="e.g., INT. HOTEL LOBBY - DAY, manga panel"
-                      />
-                    </div>
-                    
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-black mb-1">Custom Prompt</label>
+                      <label className="block text-sm font-medium text-black mb-1">Prompt</label>
                       <textarea
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         value={selectedPanel.prompt || ''}
