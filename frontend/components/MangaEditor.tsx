@@ -931,7 +931,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     if (type === 'character') {
       if (!updatedPanels[panelIndex].characterBoxes) return;
+      
+      // Remove the character box
       updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter((_, i) => i !== index);
+      
+      // Update characterNames to match characterBoxes
+      updatedPanels[panelIndex].characterNames = updatedPanels[panelIndex].characterBoxes.map(box => box.character);
+      
     } else if (type === 'text') {
       if (!updatedPanels[panelIndex].textBoxes) return;
       // Remove the text box
@@ -949,7 +955,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setSelectedBoxType(null);
     setSelectedBoxIndex(null);
   };
-
+  
   // Add double-click handler for panels
   const handlePanelDoubleClick = (panelId: string) => {
     if (isPanelFocusMode && focusedPanelId === panelId) {
@@ -1014,101 +1020,69 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const updatedPanels = [...panels];
     const panel = updatedPanels[panelIndex];
     
-    // Check if character is already in the panel
-    if (panel.characterNames.includes(character.name)) return;
+    // Initialize characterBoxes array if it doesn't exist
+    if (!panel.characterBoxes) {
+      panel.characterBoxes = [];
+    }
     
-    // Add to characterNames array
-    panel.characterNames.push(character.name);
+    // Get the color for visualization
+    const characterColor = getCharacterColor(character.name);
     
-    // Check if character already has a box
-    const existingBox = panel.characterBoxes?.find(box => box.character === character.name);
+    // Determine position based on existing character boxes
+    const totalChars = panel.characterBoxes.length;
     
-    if (!existingBox) {
-      // Initialize characterBoxes array if it doesn't exist
-      if (!panel.characterBoxes) {
-        panel.characterBoxes = [];
-      }
+    let defaultX, defaultY, defaultWidth, defaultHeight;
+    
+    if (totalChars === 0) {
+      // Single character in center
+      defaultX = 0.2;
+      defaultY = 0.2;
+      defaultWidth = 0.6;
+      defaultHeight = 0.6;
+    } else if (totalChars === 1) {
+      // Two characters side by side
+      defaultX = 0.55;
+      defaultY = 0.2;
+      defaultWidth = 0.35;
+      defaultHeight = 0.6;
       
-      // Get the color for visualization
-      const characterColor = getCharacterColor(character.name);
-      
-      // Determine position based on existing characters
-      const totalChars = panel.characterBoxes.length;
-      
-      let defaultX, defaultY, defaultWidth, defaultHeight;
-      
-      if (totalChars === 0) {
-        // Single character in center
-        defaultX = 0.2;
-        defaultY = 0.2;
-        defaultWidth = 0.6;
-        defaultHeight = 0.6;
-      } else if (totalChars === 1) {
-        // Two characters side by side
-        defaultX = 0.55;
-        defaultY = 0.2;
-        defaultWidth = 0.35;
-        defaultHeight = 0.6;
-        
-        // Also update the first character's position
-        panel.characterBoxes[0] = {
-          ...panel.characterBoxes[0],
-          x: 0.1,
-          y: 0.2,
-          width: 0.35,
-          height: 0.6
-        };
-      } else {
-        // Multiple characters - spread evenly
-        const section = 1.0 / (totalChars + 1);
-        defaultX = section * totalChars;
-        defaultY = 0.2;
-        defaultWidth = Math.min(section, 0.3);
-        defaultHeight = 0.6;
-      }
-      
-      // Add the character box with a stable ID
-      const newCharacterBox = {
-        character: character.name,
-        x: defaultX,
-        y: defaultY,
-        width: defaultWidth,
-        height: defaultHeight,
-        color: characterColor
+      // Also update the first character's position to make room
+      panel.characterBoxes[0] = {
+        ...panel.characterBoxes[0],
+        x: 0.1,
+        y: 0.2,
+        width: 0.35,
+        height: 0.6
       };
-      
-      panel.characterBoxes.push(newCharacterBox);
-      
-      // AUTO-SELECT THE NEW CHARACTER BOX - use the new index after push
-      const newBoxIndex = panel.characterBoxes.length - 1;
-      setSelectedBoxType('character');
-      setSelectedBoxIndex(newBoxIndex);
-      setPanelMode('adjust'); // Ensure we're in adjust mode
+    } else {
+      // Multiple characters - spread evenly
+      const section = 1.0 / (totalChars + 1);
+      defaultX = section * totalChars;
+      defaultY = 0.2;
+      defaultWidth = Math.min(section, 0.3);
+      defaultHeight = 0.6;
     }
     
-    updatePanelsForCurrentPage(updatedPanels);
-  };
-  
-  // Handler for removing a character from the selected panel
-  const handleRemoveCharacter = (index: number) => {
-    if (!selectedPanelId) return;
+    // Add the new character box
+    const newCharacterBox = {
+      character: character.name,
+      x: defaultX,
+      y: defaultY,
+      width: defaultWidth,
+      height: defaultHeight,
+      color: characterColor
+    };
     
-    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-    if (panelIndex === -1) return;
+    panel.characterBoxes.push(newCharacterBox);
     
-    // Remove the character
-    const updatedPanels = [...panels];
-    const charName = updatedPanels[panelIndex].characterNames[index];
+    // Update characterNames to be derived from characterBoxes for API compatibility
+    panel.characterNames = panel.characterBoxes.map(box => box.character);
     
-    // Remove from characterNames array
-    updatedPanels[panelIndex].characterNames.splice(index, 1);
-    
-    // Also remove from characterBoxes array
-    if (updatedPanels[panelIndex].characterBoxes) {
-      updatedPanels[panelIndex].characterBoxes = updatedPanels[panelIndex].characterBoxes.filter(
-        box => box.character !== charName
-      );
-    }
+    // AUTO-SELECT THE NEW CHARACTER BOX
+    const newBoxIndex = panel.characterBoxes.length - 1;
+    setSelectedBoxType('character');
+    setSelectedBoxIndex(newBoxIndex);
+    setPanelMode('adjust');
     
     updatePanelsForCurrentPage(updatedPanels);
   };
@@ -1398,62 +1372,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     ];
     const colorIndex = characterName.charCodeAt(0) % characterColors.length;
     return characterColors[colorIndex];
-  };
-  
-  // Handler for adding an action to the selected panel
-  const handleAddAction = () => {
-    if (!selectedPanelId) return;
-    
-    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-    if (panelIndex === -1) return;
-    
-    // Add a new action
-    const updatedPanels = [...panels];
-    updatedPanels[panelIndex].actions.push({ text: '' });
-    
-    updatePanelsForCurrentPage(updatedPanels);
-  };
-  
-  // Handler for updating an action in the selected panel
-  const handleUpdateAction = (index: number, value: string) => {
-    if (!selectedPanelId) return;
-    
-    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-    if (panelIndex === -1) return;
-    
-    // Update the action
-    const updatedPanels = [...panels];
-    updatedPanels[panelIndex].actions[index].text = value;
-    
-    updatePanelsForCurrentPage(updatedPanels);
-  };
-  
-  // Handler for removing an action from the selected panel
-  const handleRemoveAction = (index: number) => {
-    if (!selectedPanelId) return;
-    
-    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-    if (panelIndex === -1) return;
-    
-    // Remove the action
-    const updatedPanels = [...panels];
-    updatedPanels[panelIndex].actions.splice(index, 1);
-    
-    updatePanelsForCurrentPage(updatedPanels);
-  };
-  
-  // Handler for updating the setting of the selected panel
-  const handleUpdateSetting = (value: string) => {
-    if (!selectedPanelId) return;
-    
-    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-    if (panelIndex === -1) return;
-    
-    // Update the setting
-    const updatedPanels = [...panels];
-    updatedPanels[panelIndex].setting = value;
-    
-    updatePanelsForCurrentPage(updatedPanels);
   };
   
   // Handler for updating the prompt of the selected panel
@@ -3039,115 +2957,83 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                 <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
                 
                 <div className="space-y-6 max-w-full">
-                  {/* Character Section with Box Drawing capability */}
+                  {/* Character Section */}
                   <div className="pb-4 border-b border-gray-200">
                     <div className="flex justify-between items-center mb-2">
                       <h3 className="text-lg font-semibold">Characters</h3>
-                      <div className="flex space-x-2">
-                        <select
-                          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                          value=""
-                          onChange={(e) => {
-                            const selectedChar = characters.find(c => c.name === e.target.value);
-                            if (selectedChar) {
-                              handleAddCharacter(selectedChar);
-                            }
-                          }}
-                        >
-                          <option value="">Add Character...</option>
-                          {characters.map(char => (
-                            <option key={char.name} value={char.name}>{char.name}</option>
-                          ))}
-                        </select>
-                        
-                        {selectedPanel.characterNames.length > 0 && (
-                          <button
-                            className={`px-3 py-2 rounded-md flex items-center ${panelMode === 'character-box' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}
-                            onClick={() => {
-                              if (panelMode === 'character-box') {
-                                setPanelMode('adjust');
-                              } else {
-                                setPanelMode('character-box');
-                                setActiveCharacter(selectedPanel.characterNames[0]); // Default to first character
-                                setSelectedBoxType(null);
-                                setSelectedBoxIndex(null);
-                              }
-                            }}
-                            disabled={selectedPanel.characterNames.length === 0}
-                          >
-                            <Square size={16} className="mr-2" />
-                            {panelMode === 'character-box' ? 'Cancel' : 'Draw Box'}
-                          </button>
-                        )}
-                      </div>
+                      <select
+                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        value=""
+                        onChange={(e) => {
+                          const selectedChar = characters.find(c => c.name === e.target.value);
+                          if (selectedChar) {
+                            handleAddCharacter(selectedChar);
+                          }
+                          // Reset the select
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">Add Character...</option>
+                        {characters.map(char => (
+                          <option key={char.name} value={char.name}>{char.name}</option>
+                        ))}
+                      </select>
                     </div>
                     
-                    {/* Character list with chips */}
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {selectedPanel.characterNames.map((name, index) => (
-                        <div 
-                          key={`char-${index}`} 
-                          className={`flex items-center rounded-full px-3 py-1 ${
-                            activeCharacter === name && panelMode === 'character-box' 
-                              ? 'bg-indigo-600 text-white' 
-                              : 'bg-indigo-100 text-indigo-700'
-                          }`}
-                          onClick={() => {
-                            if (panelMode === 'character-box') {
-                              setActiveCharacter(name);
-                            }
-                          }}
-                        >
-                          <span className="mr-2">{name}</span>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation(); // Prevent character selection when removing
-                              handleRemoveCharacter(index);
-                            }}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            &times;
-                          </button>
-                        </div>
-                      ))}
-                      
-                      {selectedPanel.characterNames.length === 0 && (
-                        <div className="text-black italic">No characters added</div>
-                      )}
-                    </div>
-                    
-                    {/* Character Boxes section */}
-                    {selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 && (
-                      <div className="mt-4">
-                        <h4 className="font-medium text-sm mb-2">Character Placement Boxes:</h4>
-                        <div className="max-h-40 overflow-y-auto space-y-2">
-                          {selectedPanel.characterBoxes.map((box, idx) => (
-                            <div 
-                              key={idx} 
-                              className={`flex items-center text-sm p-2 rounded-md border ${
-                                selectedBoxType === 'character' && selectedBoxIndex === idx
-                                  ? 'border-indigo-500 bg-indigo-50'
-                                  : 'border-gray-200 hover:bg-gray-50'
-                              }`}
-                              onClick={() => {
-                                handleBoxSelect('character', idx);
-                                setPanelMode('adjust');
-                              }}
-                            >
-                              <div className="w-4 h-4 mr-2" style={{backgroundColor: box.color}}></div>
-                              <span className="flex-1">{box.character}</span>
-                              <button
-                                className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteBox('character', idx);
+                    {/* Character Boxes - now the single source of truth */}
+                    {selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 ? (
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-sm mb-2">Character Placement:</h4>
+                        <div className="max-h-60 overflow-y-auto space-y-2">
+                          {selectedPanel.characterBoxes.map((box, idx) => {
+                            const isSelected = selectedBoxType === 'character' && selectedBoxIndex === idx;
+                            
+                            return (
+                              <div 
+                                key={`char-box-${idx}`}
+                                className={`flex items-center text-sm p-3 rounded-md border cursor-pointer transition-colors ${
+                                  isSelected
+                                    ? 'border-indigo-500 bg-indigo-50'
+                                    : 'border-gray-200 hover:bg-gray-50'
+                                }`}
+                                onClick={() => {
+                                  handleBoxSelect('character', idx);
+                                  setPanelMode('adjust');
                                 }}
                               >
-                                Delete
-                              </button>
-                            </div>
-                          ))}
+                                <div 
+                                  className="w-4 h-4 mr-3 rounded" 
+                                  style={{backgroundColor: box.color}}
+                                ></div>
+                                <div className="flex-1">
+                                  <div className="font-medium">{box.character}</div>
+                                  <div className="text-xs text-gray-500">
+                                    Position: ({Math.round(box.x * 100)}%, {Math.round(box.y * 100)}%) • 
+                                    Size: {Math.round(box.width * 100)}% × {Math.round(box.height * 100)}%
+                                  </div>
+                                </div>
+                                {isSelected && (
+                                  <span className="ml-2 px-2 py-1 text-xs bg-indigo-200 text-indigo-800 rounded">
+                                    Selected
+                                  </span>
+                                )}
+                                <button
+                                  className="ml-2 px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteBox('character', idx);
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
+                      </div>
+                    ) : (
+                      <div className="text-gray-500 italic text-center py-4">
+                        No characters added. Select a character from the dropdown to add them to this panel.
                       </div>
                     )}
                     
@@ -3224,24 +3110,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                               >
                                 Delete
                               </button>
-                            </div>
-                            
-                            <div className="mb-2">
-                              <label className="block text-sm font-medium text-black mb-1">Character</label>
-                              <select
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                                value={dialogue.character}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  handleUpdateDialogue(index, 'character', e.target.value);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <option value="">Select Character...</option>
-                                {selectedPanel.characterNames.map(name => (
-                                  <option key={name} value={name}>{name}</option>
-                                ))}
-                              </select>
                             </div>
                             
                             <div className="mb-2">
