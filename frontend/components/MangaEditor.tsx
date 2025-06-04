@@ -59,7 +59,8 @@ export interface Panel {
   height: number;
   imagePath?: string;
   imageData?: string;
-  prompt?: string;
+  prompt?: string;   // User's original prompt
+  enhancedPrompt?: string;   // Backend's enhanced prompt
   setting?: string;
   seed?: number;
   panelIndex?: number;
@@ -168,6 +169,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   const focusedPanel = isPanelFocusMode && focusedPanelId ? 
     panels.find(p => p.id === focusedPanelId) : null;
   const currentScale = isPanelFocusMode ? focusScale : scale;
+  
+  
 
   // Character and Text Boxes
   const [isDrawingCharacterBox, setIsDrawingCharacterBox] = useState<boolean>(false);
@@ -177,6 +180,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   const [selectedBoxType, setSelectedBoxType] = useState<'character' | 'text' | null>(null);
   const [selectedBoxIndex, setSelectedBoxIndex] = useState<number | null>(null);
   const transformerBoxRef = useRef<any>(null);
+  const [showBoxes, setShowBoxes] = useState<boolean>(true); // Show/Hide Boxes
 
   // Refs
   const stageRef = useRef<any>(null);
@@ -1716,16 +1720,18 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const newPanels = [...panels];
     newPanels[panelIndex] = {
       ...newPanels[panelIndex],
-      imageData: data.imageData,          // Keep immediate display data
+      imageData: data.imageData,
       imagePath: data.imagePath ? normalizeImagePath(data.imagePath) : data.imageData,
-      prompt: data.prompt || newPanels[panelIndex].prompt,
+      // DON'T overwrite user's prompt - store backend's enhanced prompt separately
+      enhancedPrompt: data.prompt,        // Backend's enhanced prompt goes here
+      // prompt: keeps the user's original prompt unchanged
       isGenerating: false,
       generationQueued: false,
-      seed: data.seed // Store the used seed
+      seed: data.seed
     };
     
     updatePanelsForCurrentPage(newPanels);
-  };
+  };  
   
   // Handler for saving the page
   const handleSavePage = async () => {
@@ -2620,6 +2626,23 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
               <span>Page</span>
             </div>
           </button>
+
+          {/* Box Visibility Toggle */}
+          <div className="flex items-center">
+            <label htmlFor="boxes-toggle" className="inline-flex items-center cursor-pointer">
+              <span className="mr-3 text-sm font-medium text-gray-900">Show Boxes</span>
+              <div className="relative">
+                <input 
+                  id="boxes-toggle" 
+                  type="checkbox" 
+                  checked={showBoxes}
+                  onChange={(e) => setShowBoxes(e.target.checked)}
+                  className="sr-only peer" 
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </div>
+            </label>
+          </div>
           
           {/* Snapping Toggle */}
           <div className="flex items-center space-x-2">
@@ -2827,7 +2850,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                     })}
 
                     {/* Character and Text boxes */}
-                    {panels.map(panel => {
+                    {showBoxes && panels.map(panel => {
                       // In focus mode, only show boxes for the focused panel
                       if (isPanelFocusMode && panel.id !== focusedPanelId) {
                         return null;
@@ -2932,23 +2955,25 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                       rotateEnabled={false}
                     />
                     
-                    {/* Box Transformer */}
-                    <Transformer
-                      ref={transformerBoxRef}
-                      boundBoxFunc={(oldBox, newBox) => {
-                        if (newBox.width < 10 || newBox.height < 10) {
-                          return oldBox;
-                        }
-                        return newBox;
-                      }}
-                      padding={5}
-                      enabledAnchors={[
-                        'top-left', 'top-center', 'top-right',
-                        'middle-left', 'middle-right',
-                        'bottom-left', 'bottom-center', 'bottom-right'
-                      ]}
-                      rotateEnabled={false}
-                    />
+                    {/* Box Transformer - only show when boxes are visible */}
+                    {showBoxes && (
+                      <Transformer
+                        ref={transformerBoxRef}
+                        boundBoxFunc={(oldBox, newBox) => {
+                          if (newBox.width < 10 || newBox.height < 10) {
+                            return oldBox;
+                          }
+                          return newBox;
+                        }}
+                        padding={5}
+                        enabledAnchors={[
+                          'top-left', 'top-center', 'top-right',
+                          'middle-left', 'middle-right',
+                          'bottom-left', 'bottom-center', 'bottom-right'
+                        ]}
+                        rotateEnabled={false}
+                      />
+                    )}
                     
                     {/* Guide lines - only in normal mode */}
                     {!isPanelFocusMode && showGuides && guides.x.map((x, i) => (
@@ -3009,6 +3034,11 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
             {selectedPanel ? (
               <div className="p-4 max-w-full">
                 <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
+                {!showBoxes && (
+                  <div className="px-3 py-1 mb-4 bg-indigo-100 text-yellow-800 text-sm rounded-md">
+                    Character and Text Boxes Hidden - Toggle "Show Boxes" to edit positioning
+                  </div>
+                )}
                 
                 <div className="space-y-6 max-w-full">
                   {/* Character Section */}
@@ -3252,6 +3282,18 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                         placeholder="Deep in the undergrowth, ferns shake and a RAT emerges..."
                         rows={3}
                       />
+                      {selectedPanel.enhancedPrompt && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-800 flex items-center">
+                            <span className="mr-1">📝</span>
+                            Show enhanced prompt from model
+                          </summary>
+                          <div className="mt-2 p-3 bg-gray-50 border rounded text-xs text-gray-700 max-h-32 overflow-y-auto">
+                            <div className="font-medium text-gray-800 mb-1">Backend Enhanced Prompt:</div>
+                            {selectedPanel.enhancedPrompt}
+                          </div>
+                        </details>
+                      )}
                     </div>
                   </div>
                   
