@@ -195,7 +195,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   // Helper lines and snapping
   const [guides, setGuides] = useState<{x: number[], y: number[]}>({x: [], y: []});
   const [showGuides, setShowGuides] = useState(false);
-  const [snapThreshold, setSnapThreshold] = useState<number>(10); // In pixels, adjust as needed
+  const [snapThreshold, setSnapThreshold] = useState<number>(20); // In pixels, adjust as needed
   const [isSnappingEnabled, setIsSnappingEnabled] = useState<boolean>(true);
 
   // Project export
@@ -718,7 +718,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const node = e.target;
     const nodeWidth = node.width() * node.scaleX();
     const nodeHeight = node.height() * node.scaleY();
-
+  
     // If snapping is disabled, just clear guides and return
     if (!isSnappingEnabled) {
       setGuides({ x: [], y: [] });
@@ -734,7 +734,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const xGuides: number[] = [];
     const yGuides: number[] = [];
     
-    // Add guides for each panel edge and centers
+    // Add guides for each panel edge and centers (but be more selective)
     panels.forEach(panel => {
       if (panel.id !== selectedPanelId) {
         // Panel edges (scaled for canvas)
@@ -745,26 +745,32 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         const panelCenterX = (panel.x + panel.width / 2) * scale;
         const panelCenterY = (panel.y + panel.height / 2) * scale;
         
-        // Edge guides
+        // Only add the most useful guides to reduce "sticky" feeling
         xGuides.push(panelLeft);           // Left edge
         xGuides.push(panelRight);          // Right edge
         xGuides.push(panelCenterX);        // Center X
-        
-        // Also add guides for aligned right/left edges
-        xGuides.push(panelLeft - nodeWidth);  // My right to their left
-        xGuides.push(panelRight - nodeWidth); // My right to their right
         
         yGuides.push(panelTop);            // Top edge
         yGuides.push(panelBottom);         // Bottom edge
         yGuides.push(panelCenterY);        // Center Y
         
-        // Also add guides for aligned top/bottom edges
-        yGuides.push(panelTop - nodeHeight);   // My bottom to their top
-        yGuides.push(panelBottom - nodeHeight); // My bottom to their bottom
+        // Only add alignment guides if we're close to them (within 2x threshold)
+        if (Math.abs(x - panelLeft) < snapThreshold * 2) {
+          xGuides.push(panelLeft - nodeWidth);  // My right to their left
+        }
+        if (Math.abs(x - panelRight) < snapThreshold * 2) {
+          xGuides.push(panelRight - nodeWidth); // My right to their right
+        }
+        if (Math.abs(y - panelTop) < snapThreshold * 2) {
+          yGuides.push(panelTop - nodeHeight);   // My bottom to their top
+        }
+        if (Math.abs(y - panelBottom) < snapThreshold * 2) {
+          yGuides.push(panelBottom - nodeHeight); // My bottom to their bottom
+        }
       }
     });
     
-    // Add page boundary guides
+    // Add page boundary guides (always useful)
     xGuides.push(0);                       // Left page edge
     xGuides.push(pageSize.width * scale);  // Right page edge
     xGuides.push((pageSize.width * scale) / 2); // Page center X
@@ -772,9 +778,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     yGuides.push(0);                       // Top page edge
     yGuides.push(pageSize.height * scale); // Bottom page edge
     yGuides.push((pageSize.height * scale) / 2); // Page center Y
-    
-    // Add guides for equal spacing
-    // (more complex - implement if needed)
     
     // Find snap positions
     const snapX = getSnapPosition(x, xGuides);
@@ -843,11 +846,14 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     const panel = panels[panelIndex];
     
+    // Calculate the effective scale based on mode
+    const effectiveScale = isPanelFocusMode && panel.id === focusedPanelId ? focusScale : scale;
+    
     // Calculate actual dimensions (accounting for scale)
-    const relativeX = node.x() / (panel.width * scale);
-    const relativeY = node.y() / (panel.height * scale);
-    const relativeWidth = (node.width() * node.scaleX()) / (panel.width * scale);
-    const relativeHeight = (node.height() * node.scaleY()) / (panel.height * scale);
+    const relativeX = node.x() / (panel.width * effectiveScale);
+    const relativeY = node.y() / (panel.height * effectiveScale);
+    const relativeWidth = (node.width() * node.scaleX()) / (panel.width * effectiveScale);
+    const relativeHeight = (node.height() * node.scaleY()) / (panel.height * effectiveScale);
     
     // Ensure values stay within 0-1 range
     const x = Math.max(0, Math.min(1, relativeX));
@@ -864,6 +870,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         ...updatedPanels[panelIndex].characterBoxes[index],
         x, y, width, height
       };
+      // Update characterNames for API compatibility
+      updatedPanels[panelIndex].characterNames = updatedPanels[panelIndex].characterBoxes.map(box => box.character);
     } else if (type === 'text') {
       if (!updatedPanels[panelIndex].textBoxes) return;
       updatedPanels[panelIndex].textBoxes[index] = {
@@ -892,13 +900,16 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     const panel = panels[panelIndex];
     
+    // Calculate the effective scale based on mode
+    const effectiveScale = isPanelFocusMode && panel.id === focusedPanelId ? focusScale : scale;
+    
     // Calculate actual dimensions (accounting for scale)
-    const relativeX = node.x() / (panel.width * scale);
-    const relativeY = node.y() / (panel.height * scale);
+    const relativeX = node.x() / (panel.width * effectiveScale);
+    const relativeY = node.y() / (panel.height * effectiveScale);
     
     // Ensure values stay within 0-1 range
-    const x = Math.max(0, Math.min(1 - node.width() / (panel.width * scale), relativeX));
-    const y = Math.max(0, Math.min(1 - node.height() / (panel.height * scale), relativeY));
+    const x = Math.max(0, Math.min(1 - node.width() / (panel.width * effectiveScale), relativeX));
+    const y = Math.max(0, Math.min(1 - node.height() / (panel.height * effectiveScale), relativeY));
     
     // Update the box
     const updatedPanels = [...panels];
@@ -909,6 +920,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         ...updatedPanels[panelIndex].characterBoxes[index],
         x, y
       };
+      // Update characterNames for API compatibility
+      updatedPanels[panelIndex].characterNames = updatedPanels[panelIndex].characterBoxes.map(box => box.character);
     } else if (type === 'text') {
       if (!updatedPanels[panelIndex].textBoxes) return;
       updatedPanels[panelIndex].textBoxes[index] = {
@@ -958,6 +971,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   
   // Add double-click handler for panels
   const handlePanelDoubleClick = (panelId: string) => {
+    // Always allow focus mode regardless of whether panel has image
     if (isPanelFocusMode && focusedPanelId === panelId) {
       // Exit focus mode if double-clicking the focused panel
       exitPanelFocusMode();
@@ -1214,12 +1228,24 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const panel = panels.find(p => p.id === selectedPanelId);
     if (!panel) return;
     
-    // Check if click is inside the selected panel
-    const panelX = panel.x * scale;
-    const panelY = panel.y * scale;
-    const panelWidth = panel.width * scale;
-    const panelHeight = panel.height * scale;
+    // Calculate panel coordinates - handle focus mode
+    let panelX, panelY, panelWidth, panelHeight;
     
+    if (isPanelFocusMode && panel.id === focusedPanelId) {
+      // In focus mode, panel is at origin with focus scale
+      panelX = 0;
+      panelY = 0;
+      panelWidth = panel.width * focusScale;
+      panelHeight = panel.height * focusScale;
+    } else {
+      // Normal mode
+      panelX = panel.x * scale;
+      panelY = panel.y * scale;
+      panelWidth = panel.width * scale;
+      panelHeight = panel.height * scale;
+    }
+    
+    // Check if click is inside the panel
     if (
       pos.x >= panelX && 
       pos.x <= panelX + panelWidth && 
@@ -1264,11 +1290,22 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     const pos = e.target.getStage()?.getPointerPosition();
     if (!pos) return;
     
-    // Panel coordinates
-    const panelX = panel.x * scale;
-    const panelY = panel.y * scale;
-    const panelWidth = panel.width * scale;
-    const panelHeight = panel.height * scale;
+    // Calculate panel coordinates - handle focus mode
+    let panelX, panelY, panelWidth, panelHeight;
+    
+    if (isPanelFocusMode && panel.id === focusedPanelId) {
+      // In focus mode, panel is at origin with focus scale
+      panelX = 0;
+      panelY = 0;
+      panelWidth = panel.width * focusScale;
+      panelHeight = panel.height * focusScale;
+    } else {
+      // Normal mode
+      panelX = panel.x * scale;
+      panelY = panel.y * scale;
+      panelWidth = panel.width * scale;
+      panelHeight = panel.height * scale;
+    }
     
     // Calculate current position relative to panel
     const relativeX = Math.max(0, Math.min(1, (pos.x - panelX) / panelWidth));
@@ -2585,7 +2622,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
           </button>
           
           {/* Snapping Toggle */}
-          <div className="flex items-center">
+          <div className="flex items-center space-x-2">
             <label htmlFor="snapping-toggle" className="inline-flex items-center cursor-pointer">
               <span className="mr-3 text-sm font-medium text-gray-900">Snapping</span>
               <div className="relative">
@@ -2599,6 +2636,21 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
               </div>
             </label>
+            {/* Snap sensitivity slider */}
+            {isSnappingEnabled && (
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-600">Sensitivity:</span>
+                <input
+                  type="range"
+                  min="10"
+                  max="30"
+                  value={snapThreshold}
+                  onChange={(e) => setSnapThreshold(parseInt(e.target.value))}
+                  className="w-16 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <span className="text-xs text-gray-600">{snapThreshold}px</span>
+              </div>
+            )}
           </div>
           
           {/* Zoom Controls */}
@@ -2767,7 +2819,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                             return img;
                           })()}
                           onClick={() => handlePanelSelect(panel.id)}
+                          onDblClick={() => handlePanelDoubleClick(panel.id)}
                           onTap={() => handlePanelSelect(panel.id)}
+                          onDblTap={() => handlePanelDoubleClick(panel.id)}
                         />
                       );
                     })}
