@@ -64,6 +64,8 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
       const data = await response.json();
 
       if (data.status === 'success') {
+        console.log('Loaded generation history:', data.history?.length, 'items');
+        console.log('First item imageData preview:', data.history?.[0]?.imageData?.substring(0, 100));
         setGenerations(data.history || []);
         setCurrentGeneration(data.currentGeneration);
         
@@ -175,8 +177,8 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden">
-        <div className="p-4 border-b flex justify-between items-center">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-4 border-b flex justify-between items-center flex-shrink-0">
           <h3 className="text-xl font-bold">
             {type === 'panel' ? `Panel ${panelIndex} Generation History` : `${characterName} Generation History`}
           </h3>
@@ -189,12 +191,12 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
         </div>
 
         {error && (
-          <div className="p-4 bg-red-100 border-b border-red-200 text-red-700">
+          <div className="p-4 bg-red-100 border-b border-red-200 text-red-700 flex-shrink-0">
             {error}
           </div>
         )}
 
-        <div className="p-4 flex-1 overflow-auto">
+        <div className="p-4 flex-1 overflow-y-auto min-h-0">
           {isLoading ? (
             <div className="flex justify-center items-center h-64">
               <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
@@ -240,38 +242,47 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
                 {generations.map((generation) => (
                   <div
                     key={generation.timestamp}
-                    className={`relative border rounded-lg overflow-hidden cursor-pointer transition-all ${
+                    className={`relative border rounded-lg overflow-hidden cursor-pointer transition-all hover:shadow-lg ${
                       selectedGeneration === generation.timestamp
-                        ? 'border-indigo-500 ring-2 ring-indigo-200'
+                        ? 'border-indigo-500 ring-2 ring-indigo-200 shadow-lg'
                         : generation.isActive
-                          ? 'border-green-500'
+                          ? 'border-green-500 shadow-md'
                           : 'border-gray-200 hover:border-gray-400'
                     }`}
                     onClick={() => setSelectedGeneration(generation.timestamp)}
                   >
                     {/* Image */}
-                    <div className="aspect-square">
+                    <div className="w-full h-48 bg-gray-100 flex items-center justify-center overflow-hidden relative">
                       <img
                         src={generation.imageData}
                         alt={`Generation ${generation.timestamp}`}
-                        className="w-full h-full object-cover"
+                        className="max-w-full max-h-full object-contain relative z-10"
+                        onError={(e) => {
+                          console.error('Image failed to load:', generation.timestamp);
+                          console.error('Image src length:', generation.imageData?.length);
+                          console.error('Image src preview:', generation.imageData?.substring(0, 100));
+                          e.currentTarget.style.display = 'none';
+                        }}
+                        onLoad={(e) => {
+                          console.log('Image loaded successfully:', generation.timestamp);
+                          console.log('Natural dimensions:', e.currentTarget.naturalWidth, 'x', e.currentTarget.naturalHeight);
+                          console.log('Image src preview:', generation.imageData?.substring(0, 100));
+                        }}
                       />
                     </div>
 
-                    {/* Info Overlay */}
-                    <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-20 transition-all">
-                      <div className="absolute top-2 right-2 flex gap-1">
-                        {generation.isActive && (
-                          <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                            Active
-                          </span>
-                        )}
-                        {type === 'character' && generation.hasEmbedding && (
-                          <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
-                            Embedded
-                          </span>
-                        )}
-                      </div>
+                    {/* Status badges - positioned over image */}
+                    <div className="absolute top-2 right-2 flex gap-1">
+                      {generation.isActive && (
+                        <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                          Active
+                        </span>
+                      )}
+                      {type === 'character' && generation.hasEmbedding && (
+                        <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
+                          Embedded
+                        </span>
+                      )}
                     </div>
 
                     {/* Info Panel */}

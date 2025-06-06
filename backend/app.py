@@ -1622,8 +1622,12 @@ async def get_panel_history(project_id: str, panel_index: int):
         generations = []
         current_generation = None
         
+        print(f"Loading panel history from: {history_dir}")
+        print(f"Found {len(history_data.get('generations', []))} generations in history")
+        
         for generation in history_data.get('generations', []):
             image_path = history_dir / f"{generation['timestamp']}.png"
+            print(f"Looking for image: {image_path}")
             if image_path.exists():
                 try:
                     with open(image_path, 'rb') as img_file:
@@ -1632,6 +1636,7 @@ async def get_panel_history(project_id: str, panel_index: int):
                             print(f"Warning: Empty panel image file at {image_path}")
                             continue
                         image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+                        print(f"Successfully loaded image: {len(image_bytes)} bytes")
                     
                     gen_data = {
                         'timestamp': generation['timestamp'],
