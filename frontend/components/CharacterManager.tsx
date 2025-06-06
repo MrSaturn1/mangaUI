@@ -1,11 +1,14 @@
 // mangaui/frontend/src/components/CharacterManager.tsx
 import React, { useState, useEffect } from 'react';
+import { History } from 'lucide-react';
+import GenerationHistoryModal from './GenerationHistoryModal';
 
 interface Character {
   name: string;
   descriptions: string[];
   hasEmbedding: boolean;
   imageData?: string;
+  hasHistory?: boolean;
 }
 
 interface CharacterManagerProps {
@@ -33,12 +36,30 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
   const [showAddCharacterModal, setShowAddCharacterModal] = useState<boolean>(false);
   const [newCharacterName, setNewCharacterName] = useState<string>('');
   const [newCharacterDescription, setNewCharacterDescription] = useState<string>('');
+  const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
+  const [historyCharacterName, setHistoryCharacterName] = useState<string>('');
   
   // Fetch characters on component mount
   useEffect(() => {
     fetchCharacters();
   }, []);
   
+  // Function to check if a character has generation history
+  const checkCharacterHistory = async (characterName: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/character_history/${encodeURIComponent(characterName)}`);
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        return data.history && data.history.length > 0;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error checking character history:', err);
+      return false;
+    }
+  };
+
   // Function to fetch characters from API
   const fetchCharacters = async () => {
     setIsLoading(true);
@@ -49,7 +70,13 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
       const data = await response.json();
       
       if (data.status === 'success') {
-        setCharacters(data.characters || []);
+        const charactersWithHistory = await Promise.all(
+          (data.characters || []).map(async (character: Character) => {
+            const hasHistory = await checkCharacterHistory(character.name);
+            return { ...character, hasHistory };
+          })
+        );
+        setCharacters(charactersWithHistory);
       } else {
         throw new Error(data.message || 'Failed to fetch characters');
       }
@@ -97,15 +124,15 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
       const data = await response.json();
       
       if (data.status === 'success') {
-        // Update the character in the list with new image data
+        // Update the character in the list with new image data and history status
         const updatedCharacters = characters.map(char => 
           char.name === selectedCharacter.name 
-            ? { ...char, imageData: data.imageData, hasEmbedding: true } 
+            ? { ...char, imageData: data.imageData, hasEmbedding: true, hasHistory: true } 
             : char
         );
         
         setCharacters(updatedCharacters);
-        setSelectedCharacter({ ...selectedCharacter, imageData: data.imageData, hasEmbedding: true });
+        setSelectedCharacter({ ...selectedCharacter, imageData: data.imageData, hasEmbedding: true, hasHistory: true });
         
         // Notify parent component if needed
         if (onCharacterUpdated) {
@@ -158,6 +185,20 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
     }
   };
   
+  // Open history modal for a character
+  const handleShowHistory = (characterName: string) => {
+    setHistoryCharacterName(characterName);
+    setShowHistoryModal(true);
+  };
+
+  // Handle history modal close
+  const handleHistoryModalClose = () => {
+    setShowHistoryModal(false);
+    setHistoryCharacterName('');
+    // Refresh characters to update hasHistory status
+    fetchCharacters();
+  };
+
   // Add a new character
   const handleAddCharacter = async () => {
     if (!newCharacterName.trim()) {
@@ -286,7 +327,21 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
                   )}
                 </div>
                 <div className="p-2 bg-white">
-                  <div className="font-medium truncate text-gray-800">{character.name}</div>
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium truncate text-gray-800">{character.name}</div>
+                    {character.hasHistory && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleShowHistory(character.name);
+                        }}
+                        className="p-1 text-gray-400 hover:text-indigo-600 transition-colors"
+                        title="View generation history"
+                      >
+                        <History size={14} />
+                      </button>
+                    )}
+                  </div>
                   <div className="text-xs text-gray-500 flex items-center">
                     {character.hasEmbedding && (
                       <span className="text-green-500 mr-1">✓</span>
@@ -393,6 +448,17 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
                 </button>
               </div>
               
+              {/* History button */}
+              {selectedCharacter.hasHistory && (
+                <button
+                  className="w-full mt-4 px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 flex items-center justify-center"
+                  onClick={() => handleShowHistory(selectedCharacter.name)}
+                >
+                  <History size={16} className="mr-2" />
+                  View Generation History
+                </button>
+              )}
+              
               {/* Use in Panel button */}
               {selectedCharacter && showUseInPanelButton && (
                 <button
@@ -480,6 +546,20 @@ const CharacterManager: React.FC<CharacterManagerProps> = ({
           </div>
         </div>
       )}
+      
+      {/* Generation History Modal */}
+      <GenerationHistoryModal
+        isOpen={showHistoryModal}
+        onClose={handleHistoryModalClose}
+        type="character"
+        characterName={historyCharacterName}
+        apiEndpoint={apiBaseUrl}
+        onSelectionChanged={(timestamp) => {
+          console.log('Character generation changed to:', timestamp);
+          // Refresh character data to reflect the new active generation
+          fetchCharacters();
+        }}
+      />
     </div>
   );
 };

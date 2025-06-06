@@ -120,15 +120,16 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
 
       if (data.status === 'success') {
         // Update local state
-        setGenerations(prev => prev.map(gen => ({
+        const updatedGenerations = generations.map(gen => ({
           ...gen,
           isActive: gen.timestamp === timestamp,
           hasEmbedding: type === 'character' && gen.timestamp === timestamp ? 
             (createEmbedding || gen.hasEmbedding) : 
             (type === 'character' ? false : gen.hasEmbedding)
-        })));
-
-        setCurrentGeneration(generations.find(g => g.timestamp === timestamp) || null);
+        }));
+        
+        setGenerations(updatedGenerations);
+        setCurrentGeneration(updatedGenerations.find(g => g.timestamp === timestamp) || null);
         setSelectedGeneration(timestamp);
 
         // Notify parent component

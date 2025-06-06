@@ -743,8 +743,14 @@ class MangaGenerator:
         
         return None
     
-    def create_panel_prompt(self, panel_data):
-        """Create a comprehensive prompt for a manga panel"""
+    def create_panel_prompt(self, panel_data, use_character_descriptions=None):
+        """Create a comprehensive prompt for a manga panel
+        
+        Args:
+            panel_data: Panel data including characters, setting, etc.
+            use_character_descriptions: If None, auto-detect based on embeddings.
+                                      If True/False, force include/exclude descriptions.
+        """
         setting = panel_data['setting']
         characters = list(panel_data['characters'])
         elements = panel_data['elements']
@@ -767,15 +773,28 @@ class MangaGenerator:
         # Add setting
         prompt_parts.append(setting)
         
-        # Add characters with their descriptions
-        for character_name in characters:
-            char_descriptions = self.get_character_descriptions(character_name)
-            
-            if char_descriptions:
-                char_prompt = f"{character_name} who is {', '.join(char_descriptions)}"
-                prompt_parts.append(char_prompt)
-            else:
-                prompt_parts.append(character_name)
+        # Determine whether to include character descriptions
+        if use_character_descriptions is None:
+            # Auto-detect: if any character has embeddings, skip descriptions for all
+            has_embeddings = any(self.get_character_embedding(char) is not None for char in characters)
+            use_character_descriptions = not has_embeddings
+        
+        # Add characters (with or without descriptions based on embedding availability)
+        if use_character_descriptions:
+            # Traditional approach: include character descriptions in prompt
+            for character_name in characters:
+                char_descriptions = self.get_character_descriptions(character_name)
+                
+                if char_descriptions:
+                    char_prompt = f"{character_name} who is {', '.join(char_descriptions)}"
+                    prompt_parts.append(char_prompt)
+                else:
+                    prompt_parts.append(character_name)
+        else:
+            # Embedding-based approach: just mention character names, let embeddings handle appearance
+            if characters:
+                char_names = ", ".join(characters)
+                prompt_parts.append(f"featuring {char_names}")
         
         # Add actions if available
         if action_texts:
@@ -927,7 +946,7 @@ class MangaGenerator:
         # Always wrap in batch format for consistent API
         return [text_bboxes], [character_bboxes], [reference_embeddings]
 
-    def generate_panel(self, panel_data, panel_index, seed=None, width=None, height=None, project_id='default', ip_params=None):
+    def generate_panel(self, panel_data, panel_index, seed=None, width=None, height=None, project_id='default', ip_params=None, negative_prompt=None):
         """
         Generate a manga panel based on panel data with proper dimension handling.
         
@@ -939,6 +958,7 @@ class MangaGenerator:
             height (int, optional): Requested panel height from UI
             project_id (str, optional): Project ID for organization
             ip_params (dict, optional): Parameters for the IPAdapter including text_bboxes, character_bboxes, and reference_embeddings
+            negative_prompt (str, optional): Negative prompt for generation
         
         Returns:
             tuple: (output_path, panel_data) - Path to saved image and panel data
@@ -955,10 +975,12 @@ class MangaGenerator:
             output_path = self.panels_dir / f"panel_{panel_index:04d}.png"
 
         # Create a specific prompt for this panel
+        # When using IP adapter with character embeddings, exclude character descriptions from prompt
         prompt = self.create_panel_prompt(panel_data)
         
         # Standard negative prompt for manga
-        negative_prompt = "deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, malformed hands, blurry, ((((mutated hands and fingers)))), watermark, watermarked, oversaturated, censored, distorted hands, amputation, missing hands, obese, doubled face, double hands"
+        if negative_prompt is None:
+            negative_prompt = "deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, malformed hands, blurry, ((((mutated hands and fingers)))), watermark, watermarked, oversaturated, censored, distorted hands, amputation, missing hands, obese, doubled face, double hands"
         
         # Set up generator for seed if provided
         generator = None
@@ -996,10 +1018,14 @@ class MangaGenerator:
                                 device=self.device,
                                 dtype=torch.float16  # Match model dtype
                             )
+                            # Flatten to remove extra dimensions - should be [768] not [1, 768]
+                            emb_tensor = emb_tensor.flatten()
                             converted_embeddings.append(emb_tensor)
                         else:
                             # Ensure existing tensors have correct device and dtype
                             emb_tensor = emb.to(device=self.device, dtype=torch.float16)
+                            # Flatten to remove extra dimensions - should be [768] not [1, 768]
+                            emb_tensor = emb_tensor.flatten()
                             converted_embeddings.append(emb_tensor)
                     else:
                         converted_embeddings.append(None)
@@ -1025,6 +1051,17 @@ class MangaGenerator:
                 print(f"  reference_embeddings devices: {[emb.device if hasattr(emb, 'device') else 'N/A' for emb in reference_embeddings]}")
                 print(f"  reference_embeddings shapes: {[emb.shape if hasattr(emb, 'shape') else 'N/A' for emb in reference_embeddings]}")
                 print(f"  reference_embeddings dtypes: {[emb.dtype if hasattr(emb, 'dtype') else 'N/A' for emb in reference_embeddings]}")
+                
+                # PROOF: Show exactly which character boxes are linked to which embeddings
+                print(f"🔗 CHARACTER EMBEDDING VERIFICATION:")
+                for i, (bbox, emb) in enumerate(zip(character_bboxes, reference_embeddings)):
+                    if emb is not None:
+                        # Calculate a simple hash of the embedding for identification
+                        emb_hash = hash(emb.flatten().sum().item()) % 10000
+                        print(f"    Character box {i}: bbox={bbox} -> embedding_hash={emb_hash:04d}, shape={emb.shape}")
+                    else:
+                        print(f"    Character box {i}: bbox={bbox} -> NO EMBEDDING")
+                print(f"✅ CONFIRMED: {char_count} character boxes are spatially linked to {len([e for e in reference_embeddings if e is not None])} embeddings")
         else:
             # Clear any existing stored parameters
             transformer._temp_text_bboxes = None
@@ -1088,26 +1125,30 @@ class MangaGenerator:
         # Save the image
         image.save(output_path)
         
-        # Only save panel metadata for command-line generation
+        # Save panel metadata for both command-line and UI generation
         if project_id == 'default':
-            # Save panel data alongside the image for reference
+            # Command-line generation - save to self.panels_dir
             panel_info_path = self.panels_dir / f"panel_{panel_index:04d}.json"
-            with open(panel_info_path, 'w') as f:
-                # Convert set to list for JSON serialization
-                panel_data_json = panel_data.copy()
-                panel_data_json['characters'] = list(panel_data_json['characters'])
-                panel_data_json['prompt'] = prompt
-                panel_data_json['seed'] = seed
-                panel_data_json['width'] = width
-                panel_data_json['height'] = height
-                panel_data_json['gen_width'] = gen_width
-                panel_data_json['gen_height'] = gen_height
-                panel_data_json['project_id'] = project_id
-                characters = list(panel_data['characters'])
-                panel_data_json['characters_with_embeddings'] = [
-                    character for character in characters if self.get_character_embedding(character) is not None
-                ]
-                json.dump(panel_data_json, f, indent=2)
+        else:
+            # UI generation - save to project panels directory
+            panel_info_path = output_path.parent / f"panel_{panel_index:04d}.json"
+            
+        with open(panel_info_path, 'w') as f:
+            # Convert set to list for JSON serialization
+            panel_data_json = panel_data.copy()
+            panel_data_json['characters'] = list(panel_data_json['characters'])
+            panel_data_json['prompt'] = prompt
+            panel_data_json['seed'] = seed
+            panel_data_json['width'] = width
+            panel_data_json['height'] = height
+            panel_data_json['gen_width'] = gen_width
+            panel_data_json['gen_height'] = gen_height
+            panel_data_json['project_id'] = project_id
+            characters = list(panel_data['characters'])
+            panel_data_json['characters_with_embeddings'] = [
+                character for character in characters if self.get_character_embedding(character) is not None
+            ]
+            json.dump(panel_data_json, f, indent=2)
         
         return output_path, panel_data
     

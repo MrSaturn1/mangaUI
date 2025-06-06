@@ -21,10 +21,12 @@ import {
   Layout,
   Square,
   MessageSquare,
-  X
+  X,
+  History
 } from 'lucide-react';
 import ModeStatusBar from './ModeStatusBar';
 import PanelAdjustmentHandles from './PanelAdjustmentHandles';
+import GenerationHistoryModal from './GenerationHistoryModal';
 import { API_ENDPOINT, normalizeImagePath } from '../config';
 
 
@@ -60,6 +62,7 @@ export interface Panel {
   imagePath?: string;
   imageData?: string;
   prompt?: string;   // User's original prompt
+  negativePrompt?: string; // Negative prompt with a default setting
   enhancedPrompt?: string;   // Backend's enhanced prompt
   setting?: string;
   seed?: number;
@@ -170,8 +173,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     panels.find(p => p.id === focusedPanelId) : null;
   const currentScale = isPanelFocusMode ? focusScale : scale;
   
+  const DEFAULT_NEGATIVE_PROMPT = "deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, malformed hands, blurry, ((((mutated hands and fingers)))), watermark, watermarked, oversaturated, censored, distorted hands, amputation, missing hands, obese, doubled face, double hands";
+  const [showNegativePrompt, setShowNegativePrompt] = useState<boolean>(false);
   
-
   // Character and Text Boxes
   const [isDrawingCharacterBox, setIsDrawingCharacterBox] = useState<boolean>(false);
   const [isDrawingTextBox, setIsDrawingTextBox] = useState<boolean>(false);
@@ -191,6 +195,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
 
   // Project Management
   const [showProjectManager, setShowProjectManager] = useState<boolean>(false);
+  
+  // Panel History Modal
+  const [showPanelHistoryModal, setShowPanelHistoryModal] = useState<boolean>(false);
+  const [panelHistoryPanelId, setPanelHistoryPanelId] = useState<string>('');
+  const [panelHistoryPanelIndex, setPanelHistoryPanelIndex] = useState<number>(0);
+  const [panelsWithHistory, setPanelsWithHistory] = useState<Set<number>>(new Set());
+  
   // Auto-save functionality
   // Add state for tracking changes
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
@@ -436,6 +447,27 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       });
     };
   }, [queuedPanelRequests]);
+
+  // Check panel history when panels change
+  useEffect(() => {
+    const checkAllPanelsHistory = async () => {
+      if (!currentProject) return;
+      
+      const newPanelsWithHistory = new Set<number>();
+      
+      // Check history for each panel
+      for (let i = 0; i < panels.length; i++) {
+        const hasHistory = await checkPanelHistory(i);
+        if (hasHistory) {
+          newPanelsWithHistory.add(i);
+        }
+      }
+      
+      setPanelsWithHistory(newPanelsWithHistory);
+    };
+    
+    checkAllPanelsHistory();
+  }, [panels, currentProject]);
   
   // Handler for selecting a panel
   const handlePanelSelect = (panelId: string) => {
@@ -588,7 +620,9 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       panelIndex: panels.length,
       // Initialize empty arrays for our box fields
       characterBoxes: [],
-      textBoxes: []
+      textBoxes: [],
+      // Set default negative prompt
+      negativePrompt: DEFAULT_NEGATIVE_PROMPT
     };
     
     updatePanelsForCurrentPage([...panels, newPanel]);
@@ -1429,6 +1463,19 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     updatePanelsForCurrentPage(updatedPanels);
   };
 
+  const handleUpdateNegativePrompt = (value: string) => {
+    if (!selectedPanelId) return;
+    
+    const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+    if (panelIndex === -1) return;
+    
+    // Update the negative prompt
+    const updatedPanels = [...panels];
+    updatedPanels[panelIndex].negativePrompt = value;
+    
+    updatePanelsForCurrentPage(updatedPanels);
+  };
+
   // Status notification function
   const showStatusMessage = (message: string, type: 'success' | 'error' | 'info' | 'loading' = 'info', duration = 3000) => {
     // Clear any existing timeout
@@ -1566,6 +1613,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       const apiData = {
         projectId: currentProject?.id || 'default',
         prompt: panel.prompt || '',
+        negativePrompt: panel.negativePrompt || DEFAULT_NEGATIVE_PROMPT, // Add negative prompt
         setting: panel.setting || '',
         characterNames: panel.characterNames,
         dialogues: panel.dialogues,
@@ -1731,7 +1779,51 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     };
     
     updatePanelsForCurrentPage(newPanels);
+    
+    // Refresh panel history status for this panel
+    const refreshPanelHistory = async () => {
+      if (currentProject) {
+        const hasHistory = await checkPanelHistory(panelIndex);
+        if (hasHistory) {
+          setPanelsWithHistory(prev => new Set(prev).add(panelIndex));
+        }
+      }
+    };
+    refreshPanelHistory();
   };  
+  
+  // Panel History Functions
+  const checkPanelHistory = async (panelIndex: number): Promise<boolean> => {
+    if (!currentProject) return false;
+    
+    try {
+      const response = await fetch(`${apiEndpoint}/panel_history/${currentProject.id}/${panelIndex}`);
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        return data.history && data.history.length > 0;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error checking panel history:', err);
+      return false;
+    }
+  };
+
+  const handleShowPanelHistory = (panelId: string) => {
+    const panelIndex = panels.findIndex(p => p.id === panelId);
+    if (panelIndex === -1 || !currentProject) return;
+    
+    setPanelHistoryPanelId(currentProject.id);
+    setPanelHistoryPanelIndex(panelIndex);
+    setShowPanelHistoryModal(true);
+  };
+
+  const handlePanelHistoryModalClose = () => {
+    setShowPanelHistoryModal(false);
+    setPanelHistoryPanelId('');
+    setPanelHistoryPanelIndex(0);
+  };
   
   // Handler for saving the page
   const handleSavePage = async () => {
@@ -3132,7 +3224,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                   {/* Dialogues Section with Text Box Drawing capability */}
                   <div className="pb-4 border-b border-gray-200">
                     <div className="flex justify-between items-center mb-2">
-                      <h3 className="text-lg font-semibold">Dialogues</h3>
+                      <h3 className="text-lg font-semibold">Dialogue</h3>
                       <div className="flex space-x-2">
                         <button
                           className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
@@ -3222,7 +3314,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                       
                       {selectedPanel.dialogues.length === 0 && (
                         <div className="text-gray-500 italic text-center py-4">
-                          No dialogues added. Click "Add Dialogue" to get started.
+                          No dialogue added. Click "Add Dialogue" to get started.
                         </div>
                       )}
                     </div>
@@ -3282,18 +3374,47 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                         placeholder="Deep in the undergrowth, ferns shake and a RAT emerges..."
                         rows={3}
                       />
-                      {selectedPanel.enhancedPrompt && (
-                        <details className="mt-2">
-                          <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-800 flex items-center">
-                            <span className="mr-1">📝</span>
-                            Show enhanced prompt from model
-                          </summary>
-                          <div className="mt-2 p-3 bg-gray-50 border rounded text-xs text-gray-700 max-h-32 overflow-y-auto">
-                            <div className="font-medium text-gray-800 mb-1">Backend Enhanced Prompt:</div>
-                            {selectedPanel.enhancedPrompt}
+                      <div className="mb-4">
+                        <button
+                          className="w-full flex items-center justify-between p-2 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded-md transition-colors"
+                          onClick={() => setShowNegativePrompt(!showNegativePrompt)}
+                        >
+                          <span className="text-sm font-medium text-black">Negative Prompt</span>
+                          <div className="flex items-center">
+                            {!showNegativePrompt && (
+                              <span className="text-xs text-gray-500 mr-2">
+                                Specify what you want to avoid in the generated image
+                              </span>
+                            )}
+                            <svg 
+                              className={`w-4 h-4 transition-transform ${showNegativePrompt ? 'rotate-180' : ''}`}
+                              fill="none" 
+                              viewBox="0 0 24 24" 
+                              stroke="currentColor"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
                           </div>
-                        </details>
-                      )}
+                        </button>
+                        
+                        {showNegativePrompt && (
+                          <div className="mt-2 space-y-2">
+                            <textarea
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                              value={selectedPanel.negativePrompt || DEFAULT_NEGATIVE_PROMPT}
+                              onChange={(e) => handleUpdateNegativePrompt(e.target.value)}
+                              placeholder="Things you don't want in the image..."
+                              rows={4}
+                            />
+                            <button
+                              className="px-3 py-2 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition-colors"
+                              onClick={() => handleUpdateNegativePrompt(DEFAULT_NEGATIVE_PROMPT)}
+                            >
+                              Reset to Default
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                   
@@ -3309,6 +3430,17 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                         ? 'Regenerate Panel' 
                         : 'Generate Panel'}
                   </button>
+                  
+                  {/* Panel History Button */}
+                  {panelsWithHistory.has(panels.findIndex(p => p.id === selectedPanelId)) && (
+                    <button
+                      className="w-full mt-3 px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 flex items-center justify-center"
+                      onClick={() => handleShowPanelHistory(selectedPanelId)}
+                    >
+                      <History size={16} className="mr-2" />
+                      View Panel History
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
@@ -3373,6 +3505,20 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
           </div>
         </div>
       )}
+      
+      {/* Panel History Modal */}
+      <GenerationHistoryModal
+        isOpen={showPanelHistoryModal}
+        onClose={handlePanelHistoryModalClose}
+        type="panel"
+        projectId={panelHistoryPanelId}
+        panelIndex={panelHistoryPanelIndex}
+        apiEndpoint={apiEndpoint}
+        onSelectionChanged={(timestamp) => {
+          console.log('Panel generation changed to:', timestamp);
+          // Optionally refresh the panels or page here
+        }}
+      />
     </div>
   );
 };

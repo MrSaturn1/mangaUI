@@ -35,9 +35,10 @@ export default function Home() {
 
   // Separate initialization checks
   useEffect(() => {
-    // Start both processes in parallel
+    // Start all processes in parallel
     startInitialization();
     loadProjectData();
+    loadCharactersImmediately(); // Load characters immediately, don't wait for models
     
     // Set up polling for initialization status
     const intervalId = setInterval(() => {
@@ -203,7 +204,20 @@ export default function Home() {
     setPages(currentPages);
   };
 
-  // Update checkInitializationStatus to load characters when ready
+  // Load characters immediately on page load, don't wait for models
+  const loadCharactersImmediately = async () => {
+    setIsLoadingCharacters(true);
+    try {
+      await fetchCharacters();
+    } catch (error) {
+      console.error('Error loading characters on startup:', error);
+      // Don't show error for characters, just log it
+    } finally {
+      setIsLoadingCharacters(false);
+    }
+  };
+
+  // Update checkInitializationStatus - simplified since characters load separately
   const checkInitializationStatus = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/status`);
@@ -217,18 +231,11 @@ export default function Home() {
         progress: data.progress || 0
       });
       
-      // If already initialized, fetch characters
-      if (data.initialized && !loadingCharacters && characters.length === 0) {
-        setIsLoadingCharacters(true);
-        await fetchCharacters();
-        setIsLoadingCharacters(false);
-        
-        // Hide the status indicator after 2 seconds when initialization completes
-        if (initStatus.status !== 'success') {
-          setTimeout(() => {
-            setShowModelStatus(false);
-          }, 2000);
-        }
+      // Hide the status indicator after 2 seconds when initialization completes
+      if (data.initialized && initStatus.status !== 'success') {
+        setTimeout(() => {
+          setShowModelStatus(false);
+        }, 2000);
       }
     } catch (error) {
       console.error('Error checking initialization status:', error);

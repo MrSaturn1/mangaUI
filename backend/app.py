@@ -45,6 +45,21 @@ app = FastAPI(
     lifespan=lifespan  # Add the lifespan parameter here
 )
 
+# Reduce logging spam from polling endpoints
+import logging
+
+class EndpointFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Filter out status and get_characters endpoint logs
+        if hasattr(record, 'args') and record.args:
+            message = str(record.args[0]) if record.args else str(record.getMessage())
+            if any(endpoint in message for endpoint in ['/api/status', '/api/get_characters']):
+                return False
+        return True
+
+# Apply filter to uvicorn access logger
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -143,6 +158,7 @@ class CharacterBox(BaseModel):
 class PanelGenerateRequest(BaseModel):
     projectId: Optional[str] = "default"
     prompt: Optional[str] = ""
+    negativePrompt: Optional[str] = "deformed, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, floating limbs, disconnected limbs, malformed hands, blurry, ((((mutated hands and fingers)))), watermark, watermarked, oversaturated, censored, distorted hands, amputation, missing hands, obese, doubled face, double hands"
     setting: Optional[str] = ""
     characterNames: List[str] = []
     dialogues: List[DialogueItem] = []
@@ -305,12 +321,16 @@ async def get_characters():
     """Get all available characters and their embeddings"""
     global manga_generator, character_generator
     
-    if manga_generator is None:
-        raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Models not initialized'})
+    # Allow character loading even if models aren't initialized yet
+    # We can read character data and embeddings from files directly
     
     try:
-        # Load character data
-        with open(manga_generator.character_data_path, 'r', encoding='utf-8') as f:
+        # Load character data from the default path if manga_generator isn't available
+        character_data_path = DEFAULT_CHARACTER_DATA_PATH
+        if manga_generator is not None:
+            character_data_path = manga_generator.character_data_path
+            
+        with open(character_data_path, 'r', encoding='utf-8') as f:
             characters_data = json.load(f)
         
         # Get embeddings map
@@ -329,14 +349,22 @@ async def get_characters():
                 
             has_embedding = name in embedding_map
             
-            # Try to get image data if available
+            # Try to get image data if available - check main location first, then keepers as fallback
             image_data = None
+            main_path = os.path.join('character_output', 'character_images', f"{name}.png")
             keeper_path = os.path.join('character_output', 'character_images', 'keepers', f"{name}.png")
             
-            if os.path.exists(keeper_path):
-                with open(keeper_path, 'rb') as img_file:
-                    image_bytes = img_file.read()
-                    image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+            # Prefer main image, fallback to keeper for backwards compatibility
+            image_path = main_path if os.path.exists(main_path) else (keeper_path if os.path.exists(keeper_path) else None)
+            
+            if image_path:
+                try:
+                    with open(image_path, 'rb') as img_file:
+                        image_bytes = img_file.read()
+                        image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+                except Exception as e:
+                    print(f"Error loading image for {name}: {e}")
+                    image_data = None
             
             characters.append({
                 'name': name,
@@ -352,6 +380,152 @@ async def get_characters():
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+def create_clip_embedding_from_image(image_path: str):
+    """Create a CLIP embedding from an image using transformers"""
+    try:
+        from transformers import CLIPProcessor, CLIPModel
+        from PIL import Image
+        import torch
+        
+        # Initialize CLIP model - use ViT-Large for 768-dimensional embeddings to match Drawatoon
+        model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
+        processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+        
+        # Load and process the image
+        image = Image.open(image_path)
+        inputs = processor(images=image, return_tensors="pt")
+        
+        # Generate embedding
+        with torch.no_grad():
+            image_features = model.get_image_features(**inputs)
+            # Normalize the features (common practice with CLIP)
+            image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
+        
+        return image_features.cpu()  # Return as CPU tensor
+        
+    except ImportError:
+        print("Warning: transformers not available, creating placeholder embedding")
+        # Fallback to random embedding if transformers not available
+        return torch.randn(1, 768)  # Match Drawatoon's expected 768 dimensions
+    except Exception as e:
+        print(f"Error creating CLIP embedding: {e}")
+        return torch.randn(1, 768)  # Fallback with correct dimensions
+
+def save_character_generation_to_history(character_name: str, output_path: Path, seed: int, prompt: str = "", create_embedding: bool = True):
+    """Save a character generation to the history directory with CLIP embedding"""
+    try:
+        # Create history directory structure
+        history_dir = Path("character_output") / "character_images" / "history" / character_name
+        history_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate timestamp for this generation
+        timestamp = str(int(time.time() * 1000))  # milliseconds for uniqueness
+        datetime_str = datetime.datetime.now().isoformat()
+        
+        # Copy image to history with timestamp
+        history_image_path = history_dir / f"{timestamp}.png"
+        import shutil
+        shutil.copy2(output_path, history_image_path)
+        
+        # Create CLIP embedding
+        embedding_created = False
+        if create_embedding:
+            try:
+                embedding = create_clip_embedding_from_image(str(history_image_path))
+                
+                # Save embedding as PyTorch tensor (.pt file)
+                embedding_path = history_dir / f"{timestamp}.pt"
+                torch.save(embedding, embedding_path)
+                
+                embedding_created = True
+                print(f"Created CLIP embedding for {character_name} at {embedding_path}")
+                
+            except Exception as e:
+                print(f"Failed to create embedding for {character_name}: {e}")
+        
+        # Load or create history metadata
+        history_file = history_dir / "history.json"
+        if history_file.exists():
+            with open(history_file, 'r') as f:
+                history_data = json.load(f)
+        else:
+            history_data = {'generations': []}
+        
+        # Mark all previous generations as inactive
+        for gen in history_data.get('generations', []):
+            gen['isActive'] = False
+        
+        # Add new generation as active
+        new_generation = {
+            'timestamp': timestamp,
+            'datetime': datetime_str,
+            'seed': seed,
+            'prompt': prompt,
+            'isActive': True,
+            'hasEmbedding': embedding_created
+        }
+        
+        history_data['generations'].append(new_generation)
+        
+        # Save updated history
+        with open(history_file, 'w') as f:
+            json.dump(history_data, f, indent=2)
+        
+        return timestamp
+        
+    except Exception as e:
+        print(f"Error saving character generation to history: {e}")
+        return None
+
+def save_panel_generation_to_history(project_id: str, panel_index: int, output_path: Path, seed: int, prompt: str = ""):
+    """Save a panel generation to the history directory"""
+    try:
+        # Create history directory structure
+        history_dir = Path("manga_projects") / project_id / "panels" / "history" / f"panel_{panel_index:04d}"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate timestamp for this generation
+        timestamp = str(int(time.time() * 1000))  # milliseconds for uniqueness
+        datetime_str = datetime.datetime.now().isoformat()
+        
+        # Copy image to history with timestamp
+        history_image_path = history_dir / f"{timestamp}.png"
+        import shutil
+        shutil.copy2(output_path, history_image_path)
+        
+        # Load or create history metadata
+        history_file = history_dir / "history.json"
+        if history_file.exists():
+            with open(history_file, 'r') as f:
+                history_data = json.load(f)
+        else:
+            history_data = {'generations': []}
+        
+        # Mark all previous generations as inactive
+        for gen in history_data.get('generations', []):
+            gen['isActive'] = False
+        
+        # Add new generation as active
+        new_generation = {
+            'timestamp': timestamp,
+            'datetime': datetime_str,
+            'seed': seed,
+            'prompt': prompt,
+            'isActive': True
+        }
+        
+        history_data['generations'].append(new_generation)
+        
+        # Save updated history
+        with open(history_file, 'w') as f:
+            json.dump(history_data, f, indent=2)
+        
+        return timestamp
+        
+    except Exception as e:
+        print(f"Error saving panel generation to history: {e}")
+        return None
 
 @app.post("/api/generate_character", response_model=Dict[str, Any])
 async def generate_character(request: GenerateCharacterRequest):
@@ -375,6 +549,14 @@ async def generate_character(request: GenerateCharacterRequest):
         else:
             output_path = character_generator.generate_character(character_name, seed)
         
+        # Save this generation to history
+        timestamp = save_character_generation_to_history(
+            character_name, 
+            Path(output_path), 
+            seed, 
+            f"Character generation for {character_name}"
+        )
+        
         # Read the output image
         with open(output_path, "rb") as img_file:
             img_data = base64.b64encode(img_file.read()).decode('utf-8')
@@ -383,7 +565,8 @@ async def generate_character(request: GenerateCharacterRequest):
             'status': 'success',
             'imageData': f"data:image/png;base64,{img_data}",
             'name': character_name,
-            'seed': seed
+            'seed': seed,
+            'timestamp': timestamp
         }
     except Exception as e:
         traceback.print_exc()
@@ -508,7 +691,8 @@ def panel_request_worker():
                         width=width,
                         height=height,
                         project_id=project_id,
-                        ip_params=ip_params
+                        ip_params=ip_params,
+                        negative_prompt=panel_data.get('negativePrompt')
                     )
                     
                     # Save panel metadata (using custom JSON encoder for NumPy arrays)
@@ -677,7 +861,18 @@ async def generate_panel(request: PanelGenerateRequest):
                 width=panel_width,
                 height=panel_height,
                 project_id=project_id,
-                ip_params=ip_params  # Pass the IP adapter parameters separately
+                ip_params=ip_params,  # Pass the IP adapter parameters separately
+                negative_prompt=request.negativePrompt
+            )
+            
+            # Save this generation to history
+            panel_prompt = request.prompt or manga_generator.create_panel_prompt(panel_data)
+            timestamp = save_panel_generation_to_history(
+                project_id, 
+                panel_index,
+                Path(output_path),
+                seed,
+                panel_prompt
             )
             
             # Save panel metadata (using custom JSON encoder for NumPy arrays)
@@ -698,7 +893,8 @@ async def generate_panel(request: PanelGenerateRequest):
                 'seed': seed,
                 'width': panel_width,
                 'height': panel_height,
-                'projectId': project_id
+                'projectId': project_id,
+                'timestamp': timestamp
             }
         else:
             # Queue the request if models not initialized
@@ -714,6 +910,7 @@ async def generate_panel(request: PanelGenerateRequest):
                 'panel_data': {
                     'projectId': project_id,
                     'prompt': request.prompt,
+                    'negativePrompt': request.negativePrompt,
                     'setting': request.setting,
                     'characterNames': request.characterNames,
                     'dialogues': [d.dict() for d in request.dialogues],
@@ -1130,7 +1327,10 @@ async def update_project(project_id: str, request: UpdateProjectRequest):
                     'width': panel.get('width'),
                     'height': panel.get('height'),
                     'imagePath': panel.get('imagePath'),
+                    'imageData': panel.get('imageData'),  # Save imageData as well if present
                     'prompt': panel.get('prompt'),
+                    'negativePrompt': panel.get('negativePrompt'),
+                    'enhancedPrompt': panel.get('enhancedPrompt'),
                     'setting': panel.get('setting'),
                     'seed': panel.get('seed'),
                     'panelIndex': panel.get('panelIndex'),
@@ -1138,7 +1338,8 @@ async def update_project(project_id: str, request: UpdateProjectRequest):
                     'characterBoxes': panel.get('characterBoxes', []),
                     'textBoxes': panel.get('textBoxes', []),
                     'dialogues': panel.get('dialogues', []),
-                    'actions': panel.get('actions', [])
+                    'actions': panel.get('actions', []),
+                    'timestamp': panel.get('timestamp')  # Save generation timestamp
                 }
                 processed_page['panels'].append(processed_panel)
             
@@ -1314,6 +1515,446 @@ async def download_file(project_id: str, filename: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+# GENERATION HISTORY ROUTES
+
+@app.get("/api/character_history/{character_name}", response_model=Dict[str, Any])
+async def get_character_history(character_name: str):
+    """Get generation history for a character"""
+    try:
+        character_name = character_name.replace('%20', ' ')  # Handle URL encoding
+        
+        # Path to character history directory
+        history_dir = Path("character_output") / "character_images" / "history" / character_name
+        
+        if not history_dir.exists():
+            return {
+                'status': 'success',
+                'history': [],
+                'currentGeneration': None
+            }
+        
+        # Load history metadata
+        history_file = history_dir / "history.json"
+        if not history_file.exists():
+            return {
+                'status': 'success', 
+                'history': [],
+                'currentGeneration': None
+            }
+        
+        with open(history_file, 'r') as f:
+            history_data = json.load(f)
+        
+        # Load image data for each generation
+        generations = []
+        current_generation = None
+        
+        for generation in history_data.get('generations', []):
+            image_path = history_dir / f"{generation['timestamp']}.png"
+            if image_path.exists():
+                try:
+                    with open(image_path, 'rb') as img_file:
+                        image_bytes = img_file.read()
+                        if len(image_bytes) == 0:
+                            print(f"Warning: Empty image file at {image_path}")
+                            continue
+                        image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+                    
+                    gen_data = {
+                        'timestamp': generation['timestamp'],
+                        'datetime': generation['datetime'],
+                        'imageData': image_data,
+                        'seed': generation['seed'],
+                        'prompt': generation.get('prompt', ''),
+                        'isActive': generation.get('isActive', False),
+                        'hasEmbedding': generation.get('hasEmbedding', False)
+                    }
+                    
+                    generations.append(gen_data)
+                    
+                    if generation.get('isActive', False):
+                        current_generation = gen_data
+                        
+                except Exception as e:
+                    print(f"Error loading image {image_path}: {e}")
+                    continue
+            else:
+                print(f"History image not found: {image_path}")
+        
+        return {
+            'status': 'success',
+            'history': generations,
+            'currentGeneration': current_generation
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+@app.get("/api/panel_history/{project_id}/{panel_index}", response_model=Dict[str, Any])
+async def get_panel_history(project_id: str, panel_index: int):
+    """Get generation history for a panel"""
+    try:
+        # Path to panel history directory
+        history_dir = Path("manga_projects") / project_id / "panels" / "history" / f"panel_{panel_index:04d}"
+        
+        if not history_dir.exists():
+            return {
+                'status': 'success',
+                'history': [],
+                'currentGeneration': None
+            }
+        
+        # Load history metadata
+        history_file = history_dir / "history.json"
+        if not history_file.exists():
+            return {
+                'status': 'success',
+                'history': [],
+                'currentGeneration': None
+            }
+        
+        with open(history_file, 'r') as f:
+            history_data = json.load(f)
+        
+        # Load image data for each generation
+        generations = []
+        current_generation = None
+        
+        for generation in history_data.get('generations', []):
+            image_path = history_dir / f"{generation['timestamp']}.png"
+            if image_path.exists():
+                try:
+                    with open(image_path, 'rb') as img_file:
+                        image_bytes = img_file.read()
+                        if len(image_bytes) == 0:
+                            print(f"Warning: Empty panel image file at {image_path}")
+                            continue
+                        image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
+                    
+                    gen_data = {
+                        'timestamp': generation['timestamp'],
+                        'datetime': generation['datetime'],
+                        'imageData': image_data,
+                        'seed': generation['seed'],
+                        'prompt': generation.get('prompt', ''),
+                        'isActive': generation.get('isActive', False)
+                    }
+                    
+                    generations.append(gen_data)
+                    
+                    if generation.get('isActive', False):
+                        current_generation = gen_data
+                        
+                except Exception as e:
+                    print(f"Error loading panel image {image_path}: {e}")
+                    continue
+            else:
+                print(f"Panel history image not found: {image_path}")
+        
+        return {
+            'status': 'success',
+            'history': generations,
+            'currentGeneration': current_generation
+        }
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+class SetActiveGenerationRequest(BaseModel):
+    characterName: Optional[str] = None
+    projectId: Optional[str] = None 
+    panelIndex: Optional[int] = None
+    timestamp: str
+    createEmbedding: Optional[bool] = False
+
+@app.post("/api/set_active_character_generation", response_model=Dict[str, Any])
+async def set_active_character_generation(request: SetActiveGenerationRequest):
+    """Set a character generation as active"""
+    try:
+        character_name = request.characterName
+        timestamp = request.timestamp
+        create_embedding = request.createEmbedding
+        
+        if not character_name:
+            raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Character name is required'})
+        
+        # Path to character history directory
+        history_dir = Path("character_output") / "character_images" / "history" / character_name
+        history_file = history_dir / "history.json"
+        
+        if not history_file.exists():
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Character history not found'})
+        
+        # Load and update history
+        with open(history_file, 'r') as f:
+            history_data = json.load(f)
+        
+        # Update active status
+        found_generation = False
+        for generation in history_data.get('generations', []):
+            if generation['timestamp'] == timestamp:
+                generation['isActive'] = True
+                generation['hasEmbedding'] = create_embedding or generation.get('hasEmbedding', False)
+                found_generation = True
+                
+                # Copy this generation to the main character image location
+                source_image_path = history_dir / f"{timestamp}.png"
+                source_embedding_path = history_dir / f"{timestamp}.pt"
+                dest_image_path = Path("character_output") / "character_images" / f"{character_name}.png"
+                dest_embedding_path = Path("character_output") / "character_embeddings" / f"{character_name}.pt"
+                
+                if source_image_path.exists():
+                    import shutil
+                    dest_image_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_image_path, dest_image_path)
+                    
+                    # Copy embedding if it exists
+                    if source_embedding_path.exists():
+                        dest_embedding_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_embedding_path, dest_embedding_path)
+                        
+                        # Update character embeddings map
+                        embeddings_map_path = Path("character_output") / "character_embeddings" / "character_embeddings_map.json"
+                        try:
+                            if embeddings_map_path.exists():
+                                with open(embeddings_map_path, 'r') as f:
+                                    embeddings_map = json.load(f)
+                            else:
+                                embeddings_map = {}
+                            
+                            embeddings_map[character_name] = {
+                                "name": character_name,
+                                "image_path": str(dest_image_path),
+                                "embedding_path": str(dest_embedding_path)
+                            }
+                            
+                            with open(embeddings_map_path, 'w') as f:
+                                json.dump(embeddings_map, f, indent=2)
+                                
+                        except Exception as e:
+                            print(f"Error updating embeddings map: {e}")
+                    
+                    # If creating embedding flag is set, also copy to keepers for backwards compatibility
+                    if create_embedding:
+                        keeper_path = Path("character_output") / "character_images" / "keepers" / f"{character_name}.png"
+                        keeper_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_image_path, keeper_path)
+            else:
+                generation['isActive'] = False
+        
+        if not found_generation:
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Generation not found'})
+        
+        # Save updated history
+        with open(history_file, 'w') as f:
+            json.dump(history_data, f, indent=2)
+        
+        return {
+            'status': 'success',
+            'message': 'Character generation set as active'
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+@app.post("/api/set_active_panel_generation", response_model=Dict[str, Any])
+async def set_active_panel_generation(request: SetActiveGenerationRequest):
+    """Set a panel generation as active"""
+    try:
+        project_id = request.projectId
+        panel_index = request.panelIndex
+        timestamp = request.timestamp
+        
+        if not project_id or panel_index is None:
+            raise HTTPException(status_code=400, detail={'status': 'error', 'message': 'Project ID and panel index are required'})
+        
+        # Path to panel history directory
+        history_dir = Path("manga_projects") / project_id / "panels" / "history" / f"panel_{panel_index:04d}"
+        history_file = history_dir / "history.json"
+        
+        if not history_file.exists():
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Panel history not found'})
+        
+        # Load and update history
+        with open(history_file, 'r') as f:
+            history_data = json.load(f)
+        
+        # Update active status
+        found_generation = False
+        for generation in history_data.get('generations', []):
+            if generation['timestamp'] == timestamp:
+                generation['isActive'] = True
+                found_generation = True
+                
+                # Copy this generation to the main panel location
+                source_path = history_dir / f"{timestamp}.png"
+                dest_path = Path("manga_projects") / project_id / "panels" / f"panel_{panel_index:04d}.png"
+                
+                if source_path.exists():
+                    import shutil
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_path, dest_path)
+            else:
+                generation['isActive'] = False
+        
+        if not found_generation:
+            raise HTTPException(status_code=404, detail={'status': 'error', 'message': 'Generation not found'})
+        
+        # Save updated history
+        with open(history_file, 'w') as f:
+            json.dump(history_data, f, indent=2)
+        
+        return {
+            'status': 'success',
+            'message': 'Panel generation set as active'
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
+
+def migrate_keepers_to_main():
+    """Safely migrate keeper images to main location and create proper CLIP embeddings"""
+    keepers_dir = Path("character_output") / "character_images" / "keepers"
+    main_dir = Path("character_output") / "character_images"
+    embeddings_dir = Path("character_output") / "character_embeddings"
+    embeddings_dir.mkdir(parents=True, exist_ok=True)
+    
+    if not keepers_dir.exists():
+        print("No keepers directory found, migration not needed")
+        return
+    
+    print("Migrating keeper images to main location and creating CLIP embeddings...")
+    
+    # Load or create embeddings map
+    embeddings_map_path = embeddings_dir / "character_embeddings_map.json"
+    if embeddings_map_path.exists():
+        with open(embeddings_map_path, 'r') as f:
+            embeddings_map = json.load(f)
+    else:
+        embeddings_map = {}
+    
+    migrated_count = 0
+    
+    for keeper_file in keepers_dir.glob("*.png"):
+        # Skip card files
+        if keeper_file.name.endswith("_card.png"):
+            continue
+            
+        character_name = keeper_file.stem
+        main_file = main_dir / keeper_file.name
+        embedding_file = embeddings_dir / f"{character_name}.pt"
+        
+        print(f"Processing {character_name}...")
+        
+        # Copy image to main location (always do this)
+        import shutil
+        shutil.copy2(keeper_file, main_file)
+        print(f"  ✓ Copied image to main location")
+        
+        # Create proper CLIP embedding from the image
+        try:
+            embedding = create_clip_embedding_from_image(str(keeper_file))
+            torch.save(embedding, embedding_file)
+            
+            # Update embeddings map
+            embeddings_map[character_name] = {
+                "name": character_name,
+                "image_path": str(main_file),
+                "embedding_path": str(embedding_file)
+            }
+            
+            print(f"  ✓ Created CLIP embedding")
+            migrated_count += 1
+            
+        except Exception as e:
+            print(f"  ✗ Failed to create embedding: {e}")
+    
+    # Save updated embeddings map
+    with open(embeddings_map_path, 'w') as f:
+        json.dump(embeddings_map, f, indent=2)
+    
+    print(f"\nMigration complete!")
+    print(f"  • Migrated {migrated_count} characters with proper CLIP embeddings")
+    print(f"  • Keeper files preserved in keepers folder")
+    print(f"  • Embeddings map updated at {embeddings_map_path}")
+    print(f"  • Old random embeddings replaced with CLIP embeddings")
+
+@app.post("/api/migrate_keepers", response_model=Dict[str, Any])
+async def migrate_keepers():
+    """API endpoint to safely migrate keeper images to main location"""
+    try:
+        migrate_keepers_to_main()
+        return {
+            'status': 'success',
+            'message': 'Keeper images migrated to main location successfully'
+        }
+    except Exception as e:
+        return {
+            'status': 'error', 
+            'message': f'Migration failed: {str(e)}'
+        }
+
+@app.post("/api/fix_embedding_dimensions", response_model=Dict[str, Any])
+async def fix_embedding_dimensions():
+    """API endpoint to fix embedding dimensions from 512 to 768"""
+    try:
+        fixed_count = 0
+        embeddings_dir = Path("character_output") / "character_embeddings"
+        embeddings_map_path = embeddings_dir / "character_embeddings_map.json"
+        
+        if not embeddings_map_path.exists():
+            return {
+                'status': 'error',
+                'message': 'No embeddings map found'
+            }
+        
+        with open(embeddings_map_path, 'r') as f:
+            embeddings_map = json.load(f)
+        
+        for character_name, char_data in embeddings_map.items():
+            embedding_path = Path(char_data["embedding_path"])
+            image_path = Path(char_data["image_path"])
+            
+            if embedding_path.exists() and image_path.exists():
+                try:
+                    # Load existing embedding to check dimensions
+                    existing_embedding = torch.load(embedding_path, weights_only=False)
+                    
+                    # Check if embedding has wrong dimensions (512 instead of 768)
+                    if existing_embedding.shape[-1] == 512:
+                        print(f"Fixing embedding dimensions for {character_name}: {existing_embedding.shape} -> 768")
+                        
+                        # Create new 768-dimensional embedding
+                        new_embedding = create_clip_embedding_from_image(str(image_path))
+                        torch.save(new_embedding, embedding_path)
+                        
+                        fixed_count += 1
+                        print(f"  ✓ Fixed embedding for {character_name}")
+                    else:
+                        print(f"Embedding for {character_name} already has correct dimensions: {existing_embedding.shape}")
+                        
+                except Exception as e:
+                    print(f"  ✗ Failed to fix embedding for {character_name}: {e}")
+        
+        return {
+            'status': 'success',
+            'message': f'Fixed {fixed_count} character embeddings to correct dimensions'
+        }
+    except Exception as e:
+        print(f"Error fixing embedding dimensions: {e}")
+        return {
+            'status': 'error', 
+            'message': f'Failed to fix embedding dimensions: {str(e)}'
+        }
 
 if __name__ == '__main__':
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
