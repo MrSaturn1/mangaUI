@@ -246,13 +246,13 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
                       selectedGeneration === generation.timestamp
                         ? 'border-indigo-500 ring-2 ring-indigo-200 shadow-lg'
                         : generation.isActive
-                          ? 'border-green-500 shadow-md'
+                          ? 'border-green-500 ring-2 ring-green-200 shadow-md'
                           : 'border-gray-200 hover:border-gray-400'
                     }`}
                     onClick={() => setSelectedGeneration(generation.timestamp)}
                   >
                     {/* Image */}
-                    <div className="w-full h-48 bg-gray-100 flex items-center justify-center overflow-hidden relative">
+                    <div className="w-full h-32 bg-gray-100 flex items-center justify-center overflow-hidden relative">
                       <img
                         src={generation.imageData}
                         alt={`Generation ${generation.timestamp}`}
@@ -273,11 +273,6 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
 
                     {/* Status badges - positioned over image */}
                     <div className="absolute top-2 right-2 flex gap-1">
-                      {generation.isActive && (
-                        <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                          Active
-                        </span>
-                      )}
                       {type === 'character' && generation.hasEmbedding && (
                         <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
                           Embedded
@@ -286,11 +281,11 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
                     </div>
 
                     {/* Info Panel */}
-                    <div className="p-3 bg-white">
+                    <div className="p-2 bg-white">
                       <div className="text-xs text-gray-500 mb-1">
                         {formatDate(generation.datetime)}
                       </div>
-                      <div className="text-sm font-medium text-gray-800 mb-1">
+                      <div className="text-xs font-medium text-gray-800 mb-1">
                         Seed: {generation.seed}
                       </div>
                       {generation.prompt && (
@@ -300,7 +295,7 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
                       )}
                       
                       {/* Action buttons */}
-                      <div className="mt-2 flex gap-1">
+                      <div className="mt-1 flex gap-1">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -319,8 +314,8 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
 
               {/* Action Panel */}
               {selectedGeneration && (
-                <div className="mt-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
                     <div>
                       <h4 className="font-medium text-gray-800 mb-1">
                         Selected Generation: {formatDate(generations.find(g => g.timestamp === selectedGeneration)?.datetime || '')}
@@ -337,7 +332,7 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
                       {type === 'character' && (
                         <button
                           onClick={() => handleSetActive(selectedGeneration, true)}
-                          disabled={isLoading}
+                          disabled={isLoading || generations.find(g => g.timestamp === selectedGeneration)?.isActive}
                           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center"
                         >
                           <Check size={16} className="mr-1" />
@@ -347,11 +342,11 @@ const GenerationHistoryModal: React.FC<GenerationHistoryModalProps> = ({
                       
                       <button
                         onClick={() => handleSetActive(selectedGeneration, false)}
-                        disabled={isLoading}
+                        disabled={isLoading || generations.find(g => g.timestamp === selectedGeneration)?.isActive}
                         className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 flex items-center"
                       >
                         <Check size={16} className="mr-1" />
-                        {isLoading ? 'Setting...' : 'Set Active'}
+                        {isLoading ? 'Setting...' : generations.find(g => g.timestamp === selectedGeneration)?.isActive ? 'Already Active' : 'Set Active'}
                       </button>
                     </div>
                   </div>

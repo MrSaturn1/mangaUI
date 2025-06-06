@@ -3514,9 +3514,49 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         projectId={panelHistoryPanelId}
         panelIndex={panelHistoryPanelIndex}
         apiEndpoint={apiEndpoint}
-        onSelectionChanged={(timestamp) => {
+        onSelectionChanged={async (timestamp) => {
           console.log('Panel generation changed to:', timestamp);
-          // Optionally refresh the panels or page here
+          // Capture current page reference before async operations
+          const pageToUpdate = pages[currentPageIndex];
+          
+          // Update the specific panel's imageData without reloading everything
+          try {
+            // Add a cache-busting parameter to ensure we get the updated image
+            const cacheBuster = Date.now();
+            const response = await fetch(`${apiEndpoint}/images/${panelHistoryPanelId}/panel_${panelHistoryPanelIndex.toString().padStart(4, '0')}.png?t=${cacheBuster}`);
+            if (response.ok) {
+              const blob = await response.blob();
+              const reader = new FileReader();
+              reader.onload = () => {
+                const imageData = reader.result as string;
+                
+                // Update the specific panel in the current page
+                setPages(prevPages => {
+                  const updatedPages = [...prevPages];
+                  const currentPageIndex = updatedPages.findIndex(p => p.id === pageToUpdate?.id);
+                  if (currentPageIndex !== -1) {
+                    const panelToUpdateIndex = updatedPages[currentPageIndex].panels.findIndex(p => p.panelIndex === panelHistoryPanelIndex);
+                    if (panelToUpdateIndex !== -1) {
+                      updatedPages[currentPageIndex].panels[panelToUpdateIndex].imageData = imageData;
+                      console.log('Successfully updated panel imageData for panel', panelHistoryPanelIndex);
+                    } else {
+                      console.log('Could not find panel to update with panelIndex:', panelHistoryPanelIndex);
+                    }
+                  } else {
+                    console.log('Could not find current page to update');
+                  }
+                  return updatedPages;
+                });
+              };
+              reader.readAsDataURL(blob);
+            } else {
+              console.error('Failed to fetch updated panel image:', response.status);
+            }
+          } catch (error) {
+            console.error('Failed to update panel image:', error);
+            // Fallback to reloading project if direct update fails
+            loadProject(currentProjectId);
+          }
         }}
       />
     </div>
