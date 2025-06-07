@@ -893,6 +893,259 @@ class MangaGenerator:
         print(f"Using standard PIL resize from {image.width}x{image.height} to {original_width}x{original_height}")
         return image.resize((original_width, original_height), Image.LANCZOS)
     
+    def add_text_overlays(self, image, ip_params, panel_data, width, height):
+        """
+        Add white boxes with black text over the generated image to replace AI garbage text.
+        """
+        # Create a copy of the image to modify and ensure RGB mode
+        overlaid_image = image.copy()
+        if overlaid_image.mode != 'RGB':
+            overlaid_image = overlaid_image.convert('RGB')
+        draw = ImageDraw.Draw(overlaid_image)
+        
+        # Get text boxes from panel data
+        text_boxes = panel_data.get('textBoxes', [])
+        
+        # Load font
+        try:
+            font_paths = [
+                "/Users/iansears/mangaui/fonts/mangat.ttf",
+                "/System/Library/Fonts/Arial.ttf",
+                "arial.ttf"
+            ]
+            
+            font = None
+            for font_path in font_paths:
+                try:
+                    font = ImageFont.truetype(font_path, 16)
+                    break
+                except:
+                    continue
+                    
+            if font is None:
+                font = ImageFont.load_default()
+                
+        except:
+            font = ImageFont.load_default()
+        
+        # Add each text overlay
+        for i, text_box in enumerate(text_boxes):
+            # Get text content
+            text = text_box.get('text', '').strip()
+            
+            # Get position and size (convert normalized coordinates to pixels)
+            x_norm = text_box.get('x', 0)
+            y_norm = text_box.get('y', 0)
+            width_norm = text_box.get('width', 0.1)
+            height_norm = text_box.get('height', 0.1)
+            
+            x = int(x_norm * width)
+            y = int(y_norm * height)
+            box_width = int(width_norm * width)
+            box_height = int(height_norm * height)
+            
+            
+            # Ensure coordinates are within image bounds
+            x = max(0, min(x, width - box_width))
+            y = max(0, min(y, height - box_height))
+            box_width = min(box_width, width - x)
+            box_height = min(box_height, height - y)
+            
+            # Draw white rectangle background (no border to blend with speech bubble)
+            draw.rectangle(
+                [x, y, x + box_width, y + box_height],
+                fill='white'
+            )
+            
+            # If there's text, add it
+            if text:
+                # Find the optimal font size that uses the full text box
+                padding = 8
+                available_width = box_width - padding
+                available_height = box_height - padding
+                
+                optimal_size = self.find_optimal_font_size_only(text, available_width, available_height)
+                
+                # Load font
+                try:
+                    optimal_font = ImageFont.truetype("/Users/iansears/mangaui/fonts/mangat.ttf", optimal_size)
+                except:
+                    try:
+                        optimal_font = ImageFont.truetype("arial.ttf", optimal_size)
+                    except:
+                        optimal_font = font
+                
+                # Word wrap text to fit in the box
+                wrapped_text = self.wrap_text(text, optimal_font, available_width)
+                
+                # Calculate text position (centered in the box)
+                try:
+                    text_bbox = draw.textbbox((0, 0), wrapped_text, font=optimal_font)
+                    text_width = text_bbox[2] - text_bbox[0]
+                    text_height = text_bbox[3] - text_bbox[1]
+                    
+                    text_x = x + (box_width - text_width) // 2
+                    text_y = y + (box_height - text_height) // 2
+                    
+                    # Draw the text in black
+                    draw.text((text_x, text_y), wrapped_text, fill=(0, 0, 0), font=optimal_font)
+                except:
+                    # Simple fallback
+                    draw.text((x + 5, y + 5), text, fill=(0, 0, 0), font=font)
+            
+            print(f"Added text overlay {i+1}: '{text}' at ({x}, {y}) size ({box_width}x{box_height})")
+        
+        return overlaid_image
+    
+    def wrap_text(self, text, font, max_width):
+        """
+        Wrap text to fit within the specified width.
+        
+        Args:
+            text (str): Text to wrap
+            font: PIL font object
+            max_width (int): Maximum width in pixels
+            
+        Returns:
+            str: Wrapped text with newlines
+        """
+        words = text.split()
+        lines = []
+        current_line = []
+        
+        for word in words:
+            # Test if adding this word would exceed the width
+            test_line = ' '.join(current_line + [word])
+            bbox = font.getbbox(test_line)
+            test_width = bbox[2] - bbox[0]
+            
+            if test_width <= max_width:
+                current_line.append(word)
+            else:
+                # Start a new line
+                if current_line:
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+                else:
+                    # Single word is too long, break it
+                    lines.append(word)
+        
+        # Add the last line
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        return '\n'.join(lines)
+    
+    def find_optimal_font_size_only(self, text, max_width, max_height):
+        """
+        Find the largest font size (number) that fits the text within the given dimensions.
+        Returns just the size, not the font object.
+        """
+        # Start with a reasonable range
+        min_size = 8
+        max_size = min(max_height, 72)  # Cap at 72pt or box height
+        optimal_size = min_size
+        
+        # Binary search for the optimal font size
+        while min_size <= max_size:
+            test_size = (min_size + max_size) // 2
+            
+            # Try to load font at test size using the same method that worked
+            try:
+                test_font = ImageFont.truetype("/Users/iansears/mangaui/fonts/mangat.ttf", test_size)
+            except:
+                try:
+                    test_font = ImageFont.truetype("arial.ttf", test_size)
+                except:
+                    test_font = ImageFont.load_default()
+            
+            # Wrap text and measure dimensions
+            wrapped_text = self.wrap_text(text, test_font, max_width)
+            
+            # Get text dimensions
+            try:
+                # Create a temporary draw object to measure text
+                temp_image = Image.new('RGB', (1, 1))
+                temp_draw = ImageDraw.Draw(temp_image)
+                text_bbox = temp_draw.textbbox((0, 0), wrapped_text, font=test_font)
+                text_width = text_bbox[2] - text_bbox[0]
+                text_height = text_bbox[3] - text_bbox[1]
+            except:
+                # Fallback measurement
+                text_width = test_size * len(text) * 0.6  # Rough estimate
+                text_height = test_size * wrapped_text.count('\n') + test_size
+            
+            # Check if text fits
+            if text_width <= max_width and text_height <= max_height:
+                optimal_size = test_size
+                min_size = test_size + 1  # Try larger
+            else:
+                max_size = test_size - 1  # Try smaller
+        
+        return optimal_size
+    
+    def find_optimal_font_size(self, text, max_width, max_height):
+        """
+        Find the largest font size that fits the text within the given dimensions.
+        
+        Args:
+            text (str): Text to fit
+            max_width (int): Maximum width in pixels
+            max_height (int): Maximum height in pixels
+            
+        Returns:
+            PIL.ImageFont: Font object with optimal size
+        """
+        # Start with a reasonable range
+        min_size = 8
+        max_size = min(max_height, 72)  # Cap at 72pt or box height
+        optimal_size = min_size
+        
+        # Binary search for the optimal font size
+        while min_size <= max_size:
+            test_size = (min_size + max_size) // 2
+            
+            # Try to load font at test size
+            try:
+                test_font = ImageFont.truetype("/Users/iansears/mangaui/fonts/mangat.ttf", test_size)
+            except:
+                try:
+                    test_font = ImageFont.truetype("arial.ttf", test_size)
+                except:
+                    test_font = ImageFont.load_default()
+            
+            # Wrap text and measure dimensions
+            wrapped_text = self.wrap_text(text, test_font, max_width)
+            
+            # Get text dimensions
+            try:
+                # Create a temporary draw object to measure text
+                temp_image = Image.new('RGB', (1, 1))
+                temp_draw = ImageDraw.Draw(temp_image)
+                text_bbox = temp_draw.textbbox((0, 0), wrapped_text, font=test_font)
+                text_width = text_bbox[2] - text_bbox[0]
+                text_height = text_bbox[3] - text_bbox[1]
+            except:
+                # Fallback measurement
+                text_width = test_size * len(text) * 0.6  # Rough estimate
+                text_height = test_size * wrapped_text.count('\n') + test_size
+            
+            # Check if text fits
+            if text_width <= max_width and text_height <= max_height:
+                optimal_size = test_size
+                min_size = test_size + 1  # Try larger
+            else:
+                max_size = test_size - 1  # Try smaller
+        
+        # Return font with optimal size
+        try:
+            return ImageFont.truetype("/Users/iansears/mangaui/fonts/mangat.ttf", optimal_size)
+        except:
+            try:
+                return ImageFont.truetype("arial.ttf", optimal_size)
+            except:
+                return ImageFont.load_default()
+    
     def prepare_ip_adapter_inputs(self, panel_data):
         """Prepare inputs for IPAdapter in the format expected by the model"""
         # Get characters in the panel
@@ -1121,6 +1374,11 @@ class MangaGenerator:
                 delattr(transformer, '_temp_character_bboxes')
             if hasattr(transformer, '_temp_reference_embeddings'):
                 delattr(transformer, '_temp_reference_embeddings')
+        
+        # Add text overlays if any text boxes are defined
+        if panel_data.get('textBoxes'):
+            print(f"Applying text overlays for {len(panel_data['textBoxes'])} text boxes")
+            image = self.add_text_overlays(image, ip_params, panel_data, width, height)
         
         # Save the image
         image.save(output_path)

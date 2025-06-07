@@ -3432,7 +3432,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                   </button>
                   
                   {/* Panel History Button */}
-                  {panelsWithHistory.has(panels.findIndex(p => p.id === selectedPanelId)) && (
+                  {selectedPanelId && panelsWithHistory.has(panels.findIndex(p => p.id === selectedPanelId)) && (
                     <button
                       className="w-full mt-3 px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 flex items-center justify-center"
                       onClick={() => handleShowPanelHistory(selectedPanelId)}
@@ -3531,11 +3531,11 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                 const imageData = reader.result as string;
                 
                 // Update the specific panel in the current page
-                setPages(prevPages => {
-                  const updatedPages = [...prevPages];
-                  const currentPageIndex = updatedPages.findIndex(p => p.id === pageToUpdate?.id);
+                if (setPages && pages) {
+                  const updatedPages = [...pages];
+                  const currentPageIndex = updatedPages.findIndex((p: Page) => p.id === pageToUpdate?.id);
                   if (currentPageIndex !== -1) {
-                    const panelToUpdateIndex = updatedPages[currentPageIndex].panels.findIndex(p => p.panelIndex === panelHistoryPanelIndex);
+                    const panelToUpdateIndex = updatedPages[currentPageIndex].panels.findIndex((p: Panel) => p.panelIndex === panelHistoryPanelIndex);
                     if (panelToUpdateIndex !== -1) {
                       updatedPages[currentPageIndex].panels[panelToUpdateIndex].imageData = imageData;
                       console.log('Successfully updated panel imageData for panel', panelHistoryPanelIndex);
@@ -3545,8 +3545,8 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                   } else {
                     console.log('Could not find current page to update');
                   }
-                  return updatedPages;
-                });
+                  setPages(updatedPages);
+                }
               };
               reader.readAsDataURL(blob);
             } else {
@@ -3554,8 +3554,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
             }
           } catch (error) {
             console.error('Failed to update panel image:', error);
-            // Fallback to reloading project if direct update fails
-            loadProject(currentProjectId);
           }
         }}
       />

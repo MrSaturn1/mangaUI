@@ -381,35 +381,32 @@ async def get_characters():
         traceback.print_exc()
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
 
-def create_clip_embedding_from_image(image_path: str):
-    """Create a CLIP embedding from an image using transformers"""
+def create_magi_v2_embedding_from_image(image_path: str):
+    """Create a Magi v2 embedding from an image using the working direct method"""
     try:
-        from transformers import CLIPProcessor, CLIPModel
-        from PIL import Image
-        import torch
+        from magi_v2_character_encoder import MagiV2CharacterEncoder
         
-        # Initialize CLIP model - use ViT-Large for 768-dimensional embeddings to match Drawatoon
-        model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
-        processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+        # Initialize Magi v2 encoder
+        encoder = MagiV2CharacterEncoder('characters.json')
         
-        # Load and process the image
-        image = Image.open(image_path)
-        inputs = processor(images=image, return_tensors="pt")
+        # Extract character name from path for better logging
+        character_name = Path(image_path).stem
         
-        # Generate embedding
-        with torch.no_grad():
-            image_features = model.get_image_features(**inputs)
-            # Normalize the features (common practice with CLIP)
-            image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
+        # Generate embedding using the working Magi v2 method
+        embedding = encoder.extract_magi_v2_embedding(image_path, character_name)
         
-        return image_features.cpu()  # Return as CPU tensor
+        # Ensure it's in the right format [1, 768] for compatibility
+        if embedding.dim() == 1:
+            embedding = embedding.unsqueeze(0)  # Add batch dimension
+        
+        return embedding.cpu()  # Return as CPU tensor
         
     except ImportError:
-        print("Warning: transformers not available, creating placeholder embedding")
-        # Fallback to random embedding if transformers not available
+        print("Warning: Magi v2 not available, falling back to random embedding")
         return torch.randn(1, 768)  # Match Drawatoon's expected 768 dimensions
     except Exception as e:
-        print(f"Error creating CLIP embedding: {e}")
+        print(f"Error creating Magi v2 embedding: {e}")
+        print("Falling back to random embedding")
         return torch.randn(1, 768)  # Fallback with correct dimensions
 
 def save_character_generation_to_history(character_name: str, output_path: Path, seed: int, prompt: str = "", create_embedding: bool = True):
@@ -432,7 +429,7 @@ def save_character_generation_to_history(character_name: str, output_path: Path,
         embedding_created = False
         if create_embedding:
             try:
-                embedding = create_clip_embedding_from_image(str(history_image_path))
+                embedding = create_magi_v2_embedding_from_image(str(history_image_path))
                 
                 # Save embedding as PyTorch tensor (.pt file)
                 embedding_path = history_dir / f"{timestamp}.pt"

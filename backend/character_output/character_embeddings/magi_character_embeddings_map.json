@@ -2,8 +2,8 @@
   "DOG": {
     "name": "DOG",
     "image_path": "character_output/character_images/keepers/DOG.png",
-    "embedding_path": "character_output/character_embeddings/DOG.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/DOG_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -11,8 +11,8 @@
   "RAT KING": {
     "name": "RAT KING",
     "image_path": "character_output/character_images/keepers/RAT KING.png",
-    "embedding_path": "character_output/character_embeddings/RAT KING.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/RAT KING_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -20,8 +20,8 @@
   "GROOM": {
     "name": "GROOM",
     "image_path": "character_output/character_images/keepers/GROOM.png",
-    "embedding_path": "character_output/character_embeddings/GROOM.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/GROOM_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -29,8 +29,8 @@
   "goons": {
     "name": "goons",
     "image_path": "character_output/character_images/keepers/goons.png",
-    "embedding_path": "character_output/character_embeddings/goons.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/goons_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -38,8 +38,8 @@
   "COOL SPY": {
     "name": "COOL SPY",
     "image_path": "character_output/character_images/keepers/COOL SPY.png",
-    "embedding_path": "character_output/character_embeddings/COOL SPY.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/COOL SPY_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -47,8 +47,8 @@
   "DELIVERY GUYS": {
     "name": "DELIVERY GUYS",
     "image_path": "character_output/character_images/keepers/DELIVERY GUYS.png",
-    "embedding_path": "character_output/character_embeddings/DELIVERY GUYS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/DELIVERY GUYS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -56,8 +56,8 @@
   "ARMY OFFICER": {
     "name": "ARMY OFFICER",
     "image_path": "character_output/character_images/keepers/ARMY OFFICER.png",
-    "embedding_path": "character_output/character_embeddings/ARMY OFFICER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/ARMY OFFICER_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -65,8 +65,8 @@
   "Z": {
     "name": "Z",
     "image_path": "character_output/character_images/keepers/Z.png",
-    "embedding_path": "character_output/character_embeddings/Z.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/Z_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -74,8 +74,8 @@
   "YOHAN": {
     "name": "YOHAN",
     "image_path": "character_output/character_images/keepers/YOHAN.png",
-    "embedding_path": "character_output/character_embeddings/YOHAN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/YOHAN_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -83,8 +83,8 @@
   "JUNK WARDEN": {
     "name": "JUNK WARDEN",
     "image_path": "character_output/character_images/keepers/JUNK WARDEN.png",
-    "embedding_path": "character_output/character_embeddings/JUNK WARDEN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/JUNK WARDEN_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -92,8 +92,8 @@
   "LANDSCAPERS": {
     "name": "LANDSCAPERS",
     "image_path": "character_output/character_images/keepers/LANDSCAPERS.png",
-    "embedding_path": "character_output/character_embeddings/LANDSCAPERS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/LANDSCAPERS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -101,8 +101,8 @@
   "BRIDE'S FATHER": {
     "name": "BRIDE'S FATHER",
     "image_path": "character_output/character_images/keepers/BRIDE'S FATHER.png",
-    "embedding_path": "character_output/character_embeddings/BRIDE'S FATHER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/BRIDE'S FATHER_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -110,8 +110,8 @@
   "BIG DEAL": {
     "name": "BIG DEAL",
     "image_path": "character_output/character_images/keepers/BIG DEAL.png",
-    "embedding_path": "character_output/character_embeddings/BIG DEAL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/BIG DEAL_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -119,8 +119,8 @@
   "CHRISTINE": {
     "name": "CHRISTINE",
     "image_path": "character_output/character_images/keepers/CHRISTINE.png",
-    "embedding_path": "character_output/character_embeddings/CHRISTINE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/CHRISTINE_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -128,8 +128,8 @@
   "DINERS": {
     "name": "DINERS",
     "image_path": "character_output/character_images/keepers/DINERS.png",
-    "embedding_path": "character_output/character_embeddings/DINERS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/DINERS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -137,8 +137,8 @@
   "CROWD": {
     "name": "CROWD",
     "image_path": "character_output/character_images/keepers/CROWD.png",
-    "embedding_path": "character_output/character_embeddings/CROWD.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/CROWD_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -146,8 +146,8 @@
   "PARTY CROWD": {
     "name": "PARTY CROWD",
     "image_path": "character_output/character_images/keepers/PARTY CROWD.png",
-    "embedding_path": "character_output/character_embeddings/PARTY CROWD.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/PARTY CROWD_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -155,8 +155,8 @@
   "JONNO": {
     "name": "JONNO",
     "image_path": "character_output/character_images/keepers/JONNO.png",
-    "embedding_path": "character_output/character_embeddings/JONNO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/JONNO_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -164,8 +164,8 @@
   "RAT": {
     "name": "RAT",
     "image_path": "character_output/character_images/keepers/RAT.png",
-    "embedding_path": "character_output/character_embeddings/RAT.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/RAT_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -173,8 +173,8 @@
   "LEX": {
     "name": "LEX",
     "image_path": "character_output/character_images/keepers/LEX.png",
-    "embedding_path": "character_output/character_embeddings/LEX.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/LEX_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -182,8 +182,8 @@
   "LEO": {
     "name": "LEO",
     "image_path": "character_output/character_images/keepers/LEO.png",
-    "embedding_path": "character_output/character_embeddings/LEO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/LEO_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -191,8 +191,8 @@
   "CHEF": {
     "name": "CHEF",
     "image_path": "character_output/character_images/keepers/CHEF.png",
-    "embedding_path": "character_output/character_embeddings/CHEF.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/CHEF_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -200,8 +200,8 @@
   "DJ": {
     "name": "DJ",
     "image_path": "character_output/character_images/keepers/DJ.png",
-    "embedding_path": "character_output/character_embeddings/DJ.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/DJ_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -209,8 +209,8 @@
   "KIDS": {
     "name": "KIDS",
     "image_path": "character_output/character_images/keepers/KIDS.png",
-    "embedding_path": "character_output/character_embeddings/KIDS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/KIDS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -218,8 +218,8 @@
   "CUTE GIRL": {
     "name": "CUTE GIRL",
     "image_path": "character_output/character_images/keepers/CUTE GIRL.png",
-    "embedding_path": "character_output/character_embeddings/CUTE GIRL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/CUTE GIRL_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -227,8 +227,8 @@
   "SUPERMODELS": {
     "name": "SUPERMODELS",
     "image_path": "character_output/character_images/keepers/SUPERMODELS.png",
-    "embedding_path": "character_output/character_embeddings/SUPERMODELS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/SUPERMODELS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -236,8 +236,8 @@
   "PILOT": {
     "name": "PILOT",
     "image_path": "character_output/character_images/keepers/PILOT.png",
-    "embedding_path": "character_output/character_embeddings/PILOT.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/PILOT_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -245,8 +245,8 @@
   "FRANCISCO": {
     "name": "FRANCISCO",
     "image_path": "character_output/character_images/keepers/FRANCISCO.png",
-    "embedding_path": "character_output/character_embeddings/FRANCISCO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/FRANCISCO_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -254,8 +254,8 @@
   "BRIDE": {
     "name": "BRIDE",
     "image_path": "character_output/character_images/keepers/BRIDE.png",
-    "embedding_path": "character_output/character_embeddings/BRIDE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/BRIDE_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -263,8 +263,8 @@
   "DRIVER": {
     "name": "DRIVER",
     "image_path": "character_output/character_images/keepers/DRIVER.png",
-    "embedding_path": "character_output/character_embeddings/DRIVER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/DRIVER_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -272,8 +272,8 @@
   "MAX": {
     "name": "MAX",
     "image_path": "character_output/character_images/keepers/MAX.png",
-    "embedding_path": "character_output/character_embeddings/MAX.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/MAX_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -281,8 +281,8 @@
   "NED": {
     "name": "NED",
     "image_path": "character_output/character_images/keepers/NED.png",
-    "embedding_path": "character_output/character_embeddings/NED.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/NED_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -290,8 +290,8 @@
   "VALERIE": {
     "name": "VALERIE",
     "image_path": "character_output/character_images/keepers/VALERIE.png",
-    "embedding_path": "character_output/character_embeddings/VALERIE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/VALERIE_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -299,8 +299,8 @@
   "GOON 3": {
     "name": "GOON 3",
     "image_path": "character_output/character_images/keepers/GOON 3.png",
-    "embedding_path": "character_output/character_embeddings/GOON 3.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/GOON 3_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -308,8 +308,8 @@
   "YASIM": {
     "name": "YASIM",
     "image_path": "character_output/character_images/keepers/YASIM.png",
-    "embedding_path": "character_output/character_embeddings/YASIM.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/YASIM_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -317,8 +317,8 @@
   "LOGAN": {
     "name": "LOGAN",
     "image_path": "character_output/character_images/keepers/LOGAN.png",
-    "embedding_path": "character_output/character_embeddings/LOGAN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/LOGAN_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -326,8 +326,8 @@
   "CATHERINE": {
     "name": "CATHERINE",
     "image_path": "character_output/character_images/keepers/CATHERINE.png",
-    "embedding_path": "character_output/character_embeddings/CATHERINE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/CATHERINE_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -335,8 +335,8 @@
   "HANK": {
     "name": "HANK",
     "image_path": "character_output/character_images/keepers/HANK.png",
-    "embedding_path": "character_output/character_embeddings/HANK.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/HANK_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -344,8 +344,8 @@
   "KAYLA": {
     "name": "KAYLA",
     "image_path": "character_output/character_images/keepers/KAYLA.png",
-    "embedding_path": "character_output/character_embeddings/KAYLA.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/KAYLA_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -353,8 +353,8 @@
   "Z'S MOM": {
     "name": "Z'S MOM",
     "image_path": "character_output/character_images/keepers/Z'S MOM.png",
-    "embedding_path": "character_output/character_embeddings/Z'S MOM.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/Z'S MOM_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -362,8 +362,8 @@
   "HOMELESS GUY": {
     "name": "HOMELESS GUY",
     "image_path": "character_output/character_images/keepers/HOMELESS GUY.png",
-    "embedding_path": "character_output/character_embeddings/HOMELESS GUY.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/HOMELESS GUY_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -371,8 +371,8 @@
   "ICE CREAM MAN": {
     "name": "ICE CREAM MAN",
     "image_path": "character_output/character_images/keepers/ICE CREAM MAN.png",
-    "embedding_path": "character_output/character_embeddings/ICE CREAM MAN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/ICE CREAM MAN_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -380,8 +380,8 @@
   "JEFFREY": {
     "name": "JEFFREY",
     "image_path": "character_output/character_images/keepers/JEFFREY.png",
-    "embedding_path": "character_output/character_embeddings/JEFFREY.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/JEFFREY_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -389,8 +389,8 @@
   "DWEEB": {
     "name": "DWEEB",
     "image_path": "character_output/character_images/keepers/DWEEB.png",
-    "embedding_path": "character_output/character_embeddings/DWEEB.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/DWEEB_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -398,8 +398,8 @@
   "CHAD": {
     "name": "CHAD",
     "image_path": "character_output/character_images/keepers/CHAD.png",
-    "embedding_path": "character_output/character_embeddings/CHAD.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/CHAD_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -407,8 +407,8 @@
   "ANTON": {
     "name": "ANTON",
     "image_path": "character_output/character_images/keepers/ANTON.png",
-    "embedding_path": "character_output/character_embeddings/ANTON.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/ANTON_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -416,8 +416,8 @@
   "ANCHOR": {
     "name": "ANCHOR",
     "image_path": "character_output/character_images/keepers/ANCHOR.png",
-    "embedding_path": "character_output/character_embeddings/ANCHOR.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/ANCHOR_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -425,8 +425,8 @@
   "GIO": {
     "name": "GIO",
     "image_path": "character_output/character_images/keepers/GIO.png",
-    "embedding_path": "character_output/character_embeddings/GIO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/GIO_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -434,8 +434,8 @@
   "LINE COOKS": {
     "name": "LINE COOKS",
     "image_path": "character_output/character_images/keepers/LINE COOKS.png",
-    "embedding_path": "character_output/character_embeddings/LINE COOKS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/LINE COOKS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -443,8 +443,8 @@
   "ROLPH": {
     "name": "ROLPH",
     "image_path": "character_output/character_images/keepers/ROLPH.png",
-    "embedding_path": "character_output/character_embeddings/ROLPH.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/ROLPH_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -452,8 +452,8 @@
   "MRS. ABDUL": {
     "name": "MRS. ABDUL",
     "image_path": "character_output/character_images/keepers/MRS. ABDUL.png",
-    "embedding_path": "character_output/character_embeddings/MRS. ABDUL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/MRS. ABDUL_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -461,8 +461,8 @@
   "HOSTESS": {
     "name": "HOSTESS",
     "image_path": "character_output/character_images/keepers/HOSTESS.png",
-    "embedding_path": "character_output/character_embeddings/HOSTESS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/HOSTESS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -470,8 +470,8 @@
   "MR. ABDUL": {
     "name": "MR. ABDUL",
     "image_path": "character_output/character_images/keepers/MR. ABDUL.png",
-    "embedding_path": "character_output/character_embeddings/MR. ABDUL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/MR. ABDUL_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -479,8 +479,8 @@
   "REPORTER": {
     "name": "REPORTER",
     "image_path": "character_output/character_images/keepers/REPORTER.png",
-    "embedding_path": "character_output/character_embeddings/REPORTER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/REPORTER_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -488,8 +488,8 @@
   "MIKE": {
     "name": "MIKE",
     "image_path": "character_output/character_images/keepers/MIKE.png",
-    "embedding_path": "character_output/character_embeddings/MIKE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/MIKE_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -497,8 +497,8 @@
   "GROOM'S MOTHER": {
     "name": "GROOM'S MOTHER",
     "image_path": "character_output/character_images/keepers/GROOM'S MOTHER.png",
-    "embedding_path": "character_output/character_embeddings/GROOM'S MOTHER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/GROOM'S MOTHER_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -506,8 +506,8 @@
   "COP 2": {
     "name": "COP 2",
     "image_path": "character_output/character_images/keepers/COP 2.png",
-    "embedding_path": "character_output/character_embeddings/COP 2.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/COP 2_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -515,8 +515,8 @@
   "DISHWASHERS": {
     "name": "DISHWASHERS",
     "image_path": "character_output/character_images/keepers/DISHWASHERS.png",
-    "embedding_path": "character_output/character_embeddings/DISHWASHERS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/DISHWASHERS_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -524,8 +524,8 @@
   "COP 1": {
     "name": "COP 1",
     "image_path": "character_output/character_images/keepers/COP 1.png",
-    "embedding_path": "character_output/character_embeddings/COP 1.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/COP 1_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
@@ -533,8 +533,8 @@
   "MAYOR": {
     "name": "MAYOR",
     "image_path": "character_output/character_images/keepers/MAYOR.png",
-    "embedding_path": "character_output/character_embeddings/MAYOR.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_path": "character_output/character_embeddings/MAYOR_magi.pt",
+    "embedding_type": "magi_v2",
     "embedding_shape": [
       768
     ]
