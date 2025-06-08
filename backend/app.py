@@ -381,19 +381,19 @@ async def get_characters():
         traceback.print_exc()
         raise HTTPException(status_code=500, detail={'status': 'error', 'message': str(e)})
 
-def create_magi_v2_embedding_from_image(image_path: str):
-    """Create a Magi v2 embedding from an image using the working direct method"""
+def create_hybrid_embedding_from_image(image_path: str):
+    """Create a hybrid CLIP+Magi v2 embedding from an image using DiffSensei approach"""
     try:
-        from magi_v2_character_encoder import MagiV2CharacterEncoder
+        from hybrid_character_encoder import HybridCharacterEncoder
         
-        # Initialize Magi v2 encoder
-        encoder = MagiV2CharacterEncoder('characters.json')
+        # Initialize hybrid encoder
+        encoder = HybridCharacterEncoder('characters.json')
         
         # Extract character name from path for better logging
         character_name = Path(image_path).stem
         
-        # Generate embedding using the working Magi v2 method
-        embedding = encoder.extract_magi_v2_embedding(image_path, character_name)
+        # Generate embedding using the hybrid approach
+        embedding = encoder.extract_hybrid_embedding(image_path, character_name)
         
         # Ensure it's in the right format [1, 768] for compatibility
         if embedding.dim() == 1:
@@ -402,12 +402,23 @@ def create_magi_v2_embedding_from_image(image_path: str):
         return embedding.cpu()  # Return as CPU tensor
         
     except ImportError:
-        print("Warning: Magi v2 not available, falling back to random embedding")
-        return torch.randn(1, 768)  # Match Drawatoon's expected 768 dimensions
+        print("Warning: Hybrid encoder not available, falling back to Magi v2")
+        return create_magi_v2_embedding_from_image(image_path)
     except Exception as e:
-        print(f"Error creating Magi v2 embedding: {e}")
-        print("Falling back to random embedding")
-        return torch.randn(1, 768)  # Fallback with correct dimensions
+        print(f"Error creating hybrid embedding: {e}")
+        print("Falling back to Magi v2 embedding")
+        return create_magi_v2_embedding_from_image(image_path)
+
+def create_random_embedding_for_character(character_name: str):
+    """Create a random embedding for character consistency"""
+    print(f"Creating random embedding for {character_name}")
+    return torch.randn(1, 768)  # Match Drawatoon's expected 768 dimensions
+
+def create_magi_v2_embedding_from_image(image_path: str):
+    """Create a random embedding instead of Magi v2 for now"""
+    character_name = Path(image_path).stem
+    print(f"Using random embedding for {character_name} (reverting from Magi v2)")
+    return create_random_embedding_for_character(character_name)
 
 def save_character_generation_to_history(character_name: str, output_path: Path, seed: int, prompt: str = "", create_embedding: bool = True):
     """Save a character generation to the history directory with CLIP embedding"""
@@ -425,7 +436,7 @@ def save_character_generation_to_history(character_name: str, output_path: Path,
         import shutil
         shutil.copy2(output_path, history_image_path)
         
-        # Create CLIP embedding
+        # Create Magi v2 embedding
         embedding_created = False
         if create_embedding:
             try:
@@ -436,7 +447,7 @@ def save_character_generation_to_history(character_name: str, output_path: Path,
                 torch.save(embedding, embedding_path)
                 
                 embedding_created = True
-                print(f"Created CLIP embedding for {character_name} at {embedding_path}")
+                print(f"Created hybrid embedding for {character_name} at {embedding_path}")
                 
             except Exception as e:
                 print(f"Failed to create embedding for {character_name}: {e}")
@@ -1905,6 +1916,42 @@ async def migrate_keepers():
             'message': f'Migration failed: {str(e)}'
         }
 
+@app.post("/api/generate_hybrid_embeddings", response_model=Dict[str, Any])
+async def generate_hybrid_embeddings():
+    """API endpoint to generate hybrid CLIP+Magi embeddings for all characters"""
+    try:
+        from hybrid_character_encoder import HybridCharacterEncoder
+        
+        print("Initializing hybrid character encoder...")
+        encoder = HybridCharacterEncoder('characters.json')
+        
+        print("Generating hybrid embeddings for all keeper characters...")
+        embeddings_map = encoder.generate_all_keeper_embeddings()
+        
+        generated_count = len([char for char, data in embeddings_map.items() 
+                              if data.get("embedding_type") == "hybrid_clip_magi_768"])
+        
+        return {
+            'status': 'success',
+            'message': f'Generated hybrid embeddings for {generated_count} characters',
+            'embedding_type': 'hybrid_clip_magi_768',
+            'characters_processed': generated_count
+        }
+        
+    except ImportError:
+        return {
+            'status': 'error',
+            'message': 'Hybrid character encoder not available. Make sure opencv-python is installed.'
+        }
+    except Exception as e:
+        print(f"Error generating hybrid embeddings: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'status': 'error', 
+            'message': f'Failed to generate hybrid embeddings: {str(e)}'
+        }
+
 @app.post("/api/fix_embedding_dimensions", response_model=Dict[str, Any])
 async def fix_embedding_dimensions():
     """API endpoint to fix embedding dimensions from 512 to 768"""
@@ -1935,8 +1982,8 @@ async def fix_embedding_dimensions():
                     if existing_embedding.shape[-1] == 512:
                         print(f"Fixing embedding dimensions for {character_name}: {existing_embedding.shape} -> 768")
                         
-                        # Create new 768-dimensional embedding
-                        new_embedding = create_clip_embedding_from_image(str(image_path))
+                        # Create new 768-dimensional embedding using hybrid approach
+                        new_embedding = create_hybrid_embedding_from_image(str(image_path))
                         torch.save(new_embedding, embedding_path)
                         
                         fixed_count += 1

@@ -744,11 +744,11 @@ class MangaGenerator:
         return None
     
     def create_panel_prompt(self, panel_data, use_character_descriptions=None):
-        """Create a comprehensive prompt for a manga panel
+        """Create a comprehensive prompt for a manga panel with enhanced character descriptions
         
         Args:
             panel_data: Panel data including characters, setting, etc.
-            use_character_descriptions: If None, auto-detect based on embeddings.
+            use_character_descriptions: If None, use hybrid approach (descriptions + embeddings).
                                       If True/False, force include/exclude descriptions.
         """
         setting = panel_data['setting']
@@ -775,23 +775,28 @@ class MangaGenerator:
         
         # Determine whether to include character descriptions
         if use_character_descriptions is None:
-            # Auto-detect: if any character has embeddings, skip descriptions for all
-            has_embeddings = any(self.get_character_embedding(char) is not None for char in characters)
-            use_character_descriptions = not has_embeddings
+            # REVERT TO DESCRIPTIONS-FIRST APPROACH: Use descriptions when available, skip embeddings
+            # This avoids interference between text and visual channels
+            use_character_descriptions = True
         
-        # Add characters (with or without descriptions based on embedding availability)
+        # Add characters with enhanced descriptions
         if use_character_descriptions:
-            # Traditional approach: include character descriptions in prompt
+            # Enhanced approach: include detailed character descriptions alongside embeddings
             for character_name in characters:
                 char_descriptions = self.get_character_descriptions(character_name)
+                has_embedding = self.get_character_embedding(character_name) is not None
                 
                 if char_descriptions:
-                    char_prompt = f"{character_name} who is {', '.join(char_descriptions)}"
+                    # Create rich character description - this is the primary method for character consistency
+                    char_prompt = f"{character_name} ({', '.join(char_descriptions)})"
                     prompt_parts.append(char_prompt)
+                    print(f"Using enhanced description for {character_name}: {', '.join(char_descriptions)}")
                 else:
+                    # Fallback to just name if no descriptions available
                     prompt_parts.append(character_name)
+                    print(f"Using name only for {character_name} (no description available)")
         else:
-            # Embedding-based approach: just mention character names, let embeddings handle appearance
+            # Fallback: just mention character names, rely on embeddings
             if characters:
                 char_names = ", ".join(characters)
                 prompt_parts.append(f"featuring {char_names}")
@@ -804,9 +809,18 @@ class MangaGenerator:
         # Create the final prompt in a more natural language style
         prompt = " ".join(prompt_parts)
         
+        # Add manga-specific style enhancements
+        style_enhancements = [
+            "detailed lineart",
+            "high contrast black and white",
+            "professional manga illustration style",
+            "sharp clean lines"
+        ]
+        prompt += f", {', '.join(style_enhancements)}"
+        
         # For dialogue, add speech bubble instructions
         if dialogue_texts:
-            prompt += f". With speech bubble: {' '.join(dialogue_texts)}"
+            prompt += f". Speech bubbles contain: {' '.join(dialogue_texts)}"
             
         return prompt
     
