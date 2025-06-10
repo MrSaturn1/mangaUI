@@ -1563,7 +1563,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     }
   };
 
-  const handleManualSave = () => {
+  const handleSaveProject = () => {
     if (currentProject) {
       saveToProject();
     }
@@ -1824,12 +1824,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setPanelHistoryPanelId('');
     setPanelHistoryPanelIndex(0);
   };
-  
-  // Handler for saving the page
-  const handleSavePage = async () => {
-    // TODO: Implement page saving
-    alert('Page saving not implemented yet');
-  };
 
   // Modified page navigation function with image loading/unloading
   // Enhanced page loading with status indicators
@@ -1946,47 +1940,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     const dataURL = stageRef.current.toDataURL();
     saveAs(dataURL, `manga-page-${currentPageIndex + 1}.png`);
-  };
-
-  // Add function to save all pages
-  const handleSaveAllPages = async () => {
-    // Show loading indicator
-    setIsSaving(true);
-    
-    try {
-      // Create a zip file with all pages
-      const JSZip = (await import('jszip')).default;
-      const zip = new JSZip();
-      
-      // Process each page
-      for (let i = 0; i < pages.length; i++) {
-        // Save current page index
-        const currentPage = currentPageIndex;
-        
-        // Temporarily switch to the page we want to save
-        setCurrentPageIndex(i);
-        
-        // Need to wait for the stage to update
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Get the data URL and add to zip
-        const dataURL = stageRef.current.toDataURL();
-        const base64Data = dataURL.split(',')[1];
-        zip.file(`page-${i + 1}.png`, base64Data, {base64: true});
-        
-        // Switch back to original page
-        setCurrentPageIndex(currentPage);
-      }
-      
-      // Generate and save the zip file
-      const content = await zip.generateAsync({type: 'blob'});
-      saveAs(content, 'manga-pages.zip');
-    } catch (error) {
-      console.error('Error saving pages:', error);
-      alert('Error saving pages: ' + error);
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   const applyPageTemplate = (templateId: string) => {
@@ -2628,14 +2581,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         </button>
         
         <button
-          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
-          onClick={handleSavePage}
-          title="Save Page"
-        >
-          <Save size={20} />
-        </button>
-        
-        <button
           className="p-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
           onClick={() => setShowTemplateDialog(true)}
           title="Page Templates"
@@ -2662,7 +2607,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         {/* Save Project */}
         <button
           className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
-          onClick={handleManualSave}
+          onClick={handleSaveProject}
           title="Save Project"
           disabled={isSaving || !hasUnsavedChanges}
         >

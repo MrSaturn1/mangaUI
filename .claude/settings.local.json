@@ -1,8 +1,10 @@
 {
-  "enableAllProjectMcpServers": false,
   "permissions": {
     "allow": [
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(grep:*)",
+      "Bash(rg:*)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": false
 }

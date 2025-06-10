@@ -274,7 +274,7 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({
     setIsLoading(false);
   };
   
-  // Save current pages to project
+  // Save project with all pages
   const handleSaveProject = async (): Promise<void> => {
     if (!currentProject || !currentPages || currentPages.length === 0) {
       return;
@@ -450,7 +450,7 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({
                   onClick={handleSaveProject}
                   disabled={isSaving}
                 >
-                  {isSaving ? 'Saving...' : 'Save Current Pages'}
+                  {isSaving ? 'Saving...' : 'Save Project'}
                 </button>
                 <button
                   className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"

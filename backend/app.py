@@ -50,15 +50,48 @@ import logging
 
 class EndpointFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        # Filter out status and get_characters endpoint logs
-        if hasattr(record, 'args') and record.args:
-            message = str(record.args[0]) if record.args else str(record.getMessage())
-            if any(endpoint in message for endpoint in ['/api/status', '/api/get_characters']):
-                return False
+        # Filter out noisy polling endpoint logs
+        try:
+            # Get the message from different possible sources
+            message = ""
+            if hasattr(record, 'args') and record.args:
+                message = str(record.args[0]) if record.args else ""
+            if not message and hasattr(record, 'getMessage'):
+                message = str(record.getMessage())
+            if not message:
+                message = str(record.msg) if hasattr(record, 'msg') else ""
+            
+            # List of endpoints to filter out (case insensitive)
+            noisy_endpoints = [
+                '/api/status',
+                '/api/get_characters', 
+                '/api/init/status',
+                '/api/check_panel_status',
+                'GET /api/status',
+                'GET /api/get_characters',
+                'GET /api/init/status',
+                'GET /api/check_panel_status'
+            ]
+            
+            # Filter out if any noisy endpoint is in the message
+            message_lower = message.lower()
+            for endpoint in noisy_endpoints:
+                if endpoint.lower() in message_lower:
+                    return False
+                    
+        except Exception:
+            # If there's any error in filtering, allow the log through
+            pass
+            
         return True
 
-# Apply filter to uvicorn access logger
-logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+# Apply filter to uvicorn access logger and other potential loggers
+for logger_name in ["uvicorn.access", "uvicorn", "fastapi"]:
+    try:
+        logger = logging.getLogger(logger_name)
+        logger.addFilter(EndpointFilter())
+    except Exception:
+        pass
 
 # Configure CORS
 app.add_middleware(
@@ -1210,7 +1243,7 @@ async def create_project(request: CreateProjectRequest):
         new_project = {
             'id': project_id,
             'name': name,
-            'pages': 1,  # Start with 1 page instead of 0
+            'pages': 2,  # Start with 2 pages for better layout
             'lastModified': datetime.datetime.now().isoformat()
         }
         
@@ -1224,11 +1257,17 @@ async def create_project(request: CreateProjectRequest):
         project_dir = projects_dir / project_id
         project_dir.mkdir(exist_ok=True)
         
-        # Initialize with default page
-        default_pages = [{
-            'id': 'page-1',
-            'panels': []
-        }]
+        # Initialize with 2 default pages
+        default_pages = [
+            {
+                'id': 'page-1',
+                'panels': []
+            },
+            {
+                'id': 'page-2',
+                'panels': []
+            }
+        ]
         
         pages_file = project_dir / "pages.json"
         with open(pages_file, 'w') as f:
