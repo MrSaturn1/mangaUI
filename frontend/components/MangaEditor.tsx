@@ -35,6 +35,7 @@ export interface Character {
   descriptions: string[];
   hasEmbedding: boolean;
   imageData?: string;
+  hasHistory?: boolean;
 }
 
 interface DialogueItem {
@@ -122,6 +123,8 @@ interface MangaEditorProps {
   setPages?: (pages: Page[]) => void; // Add this
   onSaveProject?: (projectId: string, pages: Page[]) => void; // Add this
   onShowProjectManager?: () => void; // Add this
+  onShowExport?: () => void; // Add this new prop
+  onPageIndexChange?: (newIndex: number) => void; // Add this new prop
 }
 
 // Then update the function declaration to use these props
@@ -133,10 +136,12 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   pages = [],
   setPages,
   onSaveProject,
-  onShowProjectManager
+  onShowProjectManager,
+  onShowExport,
+  onPageIndexChange,
 }) => {
   // Page state
-  const [pageSize, setPageSize] = useState({ width: 1500, height: 2250 }); // A4 proportions
+  const [pageSize, setPageSize] = useState({ width: 1500, height: 2250 }); // Manga proportions
   const [pageIndex, setPageIndex] = useState<number>(0);
   const [scale, setScale] = useState<number>(0.3); // Scale for the canvas
   // Use a local copy of pages to avoid TypeScript errors with setPages
@@ -213,30 +218,13 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   const [snapThreshold, setSnapThreshold] = useState<number>(20); // In pixels, adjust as needed
   const [isSnappingEnabled, setIsSnappingEnabled] = useState<boolean>(true);
 
-  // Project export
-  const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [exportProgress, setExportProgress] = useState<number>(0);
-  const [statusMessage, setStatusMessage] = useState<string>('');
-  const [showExportDialog, setShowExportDialog] = useState<boolean>(false);
-  const [exportConfig, setExportConfig] = useState<{
-    type: 'png' | 'pdf';
-    pageRange: 'all' | 'current' | 'custom';
-    customRange: string;
-    quality: 'normal' | 'high';
-  }>({
-    type: 'png',
-    pageRange: 'all',
-    customRange: '',
-    quality: 'normal'
-  });
-
   // Status Indicators
   const [statusType, setStatusType] = useState<'success' | 'error' | 'info' | 'loading'>('info');
   const [showStatus, setShowStatus] = useState<boolean>(false);
   const [statusTimeout, setStatusTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string>('');
 
   
-
   // Initialize localPages from the props pages and sync them
   useEffect(() => {
     // Initialize localPages with pages from props if they exist
@@ -1853,6 +1841,11 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setCurrentPageIndex(newPageIndex);
     setSelectedPanelId(null); // Clear selection
     
+    // Call the callback to update parent component
+    if (onPageIndexChange) {
+      onPageIndexChange(newPageIndex);
+    }
+    
     // Load images for the new page
     loadPageImages(newPageIndex)
       .then(() => {
@@ -1934,14 +1927,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setSelectedPanelId(null); // Clear selection when switching pages
   };
 
-
-  const handleSaveSinglePage = async () => {
-    if (!stageRef.current) return;
-    
-    const dataURL = stageRef.current.toDataURL();
-    saveAs(dataURL, `manga-page-${currentPageIndex + 1}.png`);
-  };
-
   const applyPageTemplate = (templateId: string) => {
     const template = pageTemplates.find(t => t.id === templateId);
     if (!template) return;
@@ -1984,487 +1969,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     setSelectedPanelId(null);
     setShowTemplateDialog(false);
-  };
-
-  // Function to parse page range input
-  const parsePageRange = (rangeInput: string, totalPages: number): number[] => {
-    const pages: number[] = [];
-    
-    if (!rangeInput.trim()) {
-      return pages;
-    }
-    
-    const parts = rangeInput.split(',');
-    
-    for (const part of parts) {
-      if (part.includes('-')) {
-        // Range like "1-5"
-        const [start, end] = part.split('-').map(num => parseInt(num.trim()));
-        
-        if (!isNaN(start) && !isNaN(end)) {
-          const validStart = Math.max(1, Math.min(start, totalPages));
-          const validEnd = Math.max(validStart, Math.min(end, totalPages));
-          
-          for (let i = validStart; i <= validEnd; i++) {
-            pages.push(i - 1); // Convert to 0-based index
-          }
-        }
-      } else {
-        // Single page like "3"
-        const pageNum = parseInt(part.trim());
-        
-        if (!isNaN(pageNum) && pageNum > 0 && pageNum <= totalPages) {
-          pages.push(pageNum - 1); // Convert to 0-based index
-        }
-      }
-    }
-    
-    // Return unique pages in order
-    return [...new Set(pages)].sort((a, b) => a - b);
-  };
-
-  // Export manga function
-  const exportManga = async () => {
-    if (!currentProject || !localPages.length) {
-      setStatusMessage('No project or pages to export');
-      setTimeout(() => setStatusMessage(''), 3000);
-      return;
-    }
-    
-    setIsExporting(true);
-    setExportProgress(0);
-    
-    try {
-      // Parse page range
-      let pagesToExport: number[];
-      
-      if (exportConfig.pageRange === 'current') {
-        pagesToExport = [currentPageIndex];
-      } else if (exportConfig.pageRange === 'custom') {
-        pagesToExport = parsePageRange(exportConfig.customRange, localPages.length);
-        
-        if (pagesToExport.length === 0) {
-          throw new Error('Invalid page range. Please use format like "1-3, 5, 7-9"');
-        }
-      } else {
-        // 'all' is the default
-        pagesToExport = Array.from({ length: localPages.length }, (_, i) => i);
-      }
-      
-      // Different export methods based on type
-      if (exportConfig.type === 'png') {
-        await exportAsPNG(pagesToExport);
-      } else {
-        await exportAsPDF(pagesToExport);
-      }
-      
-      // Show success message
-      setStatusMessage('Export completed successfully');
-      setTimeout(() => setStatusMessage(''), 3000);
-    } catch (error) {
-      console.error('Export error:', error);
-      setStatusMessage('Export failed: ' + (error instanceof Error ? error.message : String(error)));
-      setTimeout(() => setStatusMessage(''), 3000);
-    } finally {
-      setIsExporting(false);
-      setExportProgress(100);
-      // Reset to 0 after a delay
-      setTimeout(() => setExportProgress(0), 1000);
-    }
-  };
-
-  // PNG Export (as ZIP file)
-  const exportAsPNG = async (pageIndices: number[]) => {
-    // Create a zip file using JSZip
-    const JSZip = (await import('jszip')).default;
-    const zip = new JSZip();
-    
-    // Add metadata
-    zip.file('metadata.json', JSON.stringify({
-      name: currentProject?.name,
-      created: new Date().toISOString(),
-      modified: new Date().toISOString(),
-      pageCount: pageIndices.length,
-      exportDate: new Date().toISOString()
-    }));
-    
-    // Add pages
-    const pagesFolder = zip.folder('pages');
-    
-    // Original page index to restore later
-    const originalPageIndex = currentPageIndex;
-    
-    // Pixel ratio for export quality
-    const pixelRatio = exportConfig.quality === 'high' ? 3 : 2;
-    
-    // For each page, take a screenshot and add to zip
-    for (let i = 0; i < pageIndices.length; i++) {
-      const pageIndex = pageIndices[i];
-      
-      // Update progress
-      setExportProgress(Math.round((i / pageIndices.length) * 100));
-      
-      // Switch to page
-      setCurrentPageIndex(pageIndex);
-      
-      // Wait for the page to render
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Take a screenshot using the stage ref
-      if (stageRef.current) {
-        const dataURL = stageRef.current.toDataURL({
-          pixelRatio,
-          mimeType: 'image/png'
-        });
-        
-        // Convert data URL to blob
-        const imageData = dataURL.split(',')[1];
-        const binaryData = atob(imageData);
-        const array = new Uint8Array(binaryData.length);
-        
-        for (let j = 0; j < binaryData.length; j++) {
-          array[j] = binaryData.charCodeAt(j);
-        }
-        
-        // Add to zip with original page number for clarity
-        pagesFolder?.file(`page-${pageIndex + 1}.png`, array);
-      }
-    }
-    
-    // Restore original page index
-    setCurrentPageIndex(originalPageIndex);
-    
-    // Generate the zip file
-    const content = await zip.generateAsync({
-      type: 'blob',
-      compression: 'DEFLATE',
-      compressionOptions: {
-        level: 9 // Maximum compression
-      }
-    });
-    
-    // Create name based on project and export type
-    const fileName = `${currentProject?.name.replace(/\s+/g, '-')}-pages.zip`;
-    
-    // Trigger download
-    saveAs(content, fileName);
-  };
-
-  // PDF Export
-  const exportAsPDF = async (pageIndices: number[]) => {
-    // Check if apiEndpoint is available
-    if (apiEndpoint) {
-      // Server-side PDF generation
-      await serverPDFExport(pageIndices);
-    } else {
-      // Client-side PDF generation
-      await clientPDFExport(pageIndices);
-    }
-  };
-
-  // Client-side PDF generation
-  const clientPDFExport = async (pageIndices: number[]) => {
-    // Import jsPDF and dependencies dynamically
-    const { default: jsPDF } = await import('jspdf');
-    
-    // Original page index to restore later
-    const originalPageIndex = currentPageIndex;
-    
-    // Create a new PDF document
-    // A4 size: 210 × 297 mm (8.27 × 11.69 inches)
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
-    
-    // PDF dimensions
-    const pdfWidth = 210;  // mm
-    const pdfHeight = 297; // mm
-    
-    // Manga dimensions with margin
-    const margin = 10; // mm
-    const mangaWidth = pdfWidth - (margin * 2);
-    const mangaHeight = pdfHeight - (margin * 2);
-    
-    // Pixel ratio for quality
-    const pixelRatio = exportConfig.quality === 'high' ? 3 : 2;
-    
-    // For each page
-    for (let i = 0; i < pageIndices.length; i++) {
-      const pageIndex = pageIndices[i];
-      
-      // Update progress
-      setExportProgress(Math.round((i / pageIndices.length) * 100));
-      
-      // Add new page to PDF if not the first page
-      if (i > 0) {
-        pdf.addPage();
-      }
-      
-      // Switch to page
-      setCurrentPageIndex(pageIndex);
-      
-      // Wait for the page to render
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Get screenshot
-      if (stageRef.current) {
-        const dataURL = stageRef.current.toDataURL({
-          pixelRatio,
-          mimeType: 'image/jpeg',
-          quality: 0.9
-        });
-        
-        // Add image to PDF
-        pdf.addImage(
-          dataURL,
-          'JPEG',
-          margin,
-          margin,
-          mangaWidth,
-          mangaHeight,
-          `page-${pageIndex + 1}`,
-          'MEDIUM'
-        );
-      }
-    }
-    
-    // Restore original page index
-    setCurrentPageIndex(originalPageIndex);
-    
-    // Create file name
-    const fileName = `${currentProject?.name.replace(/\s+/g, '-')}.pdf`;
-    
-    // Save PDF
-    pdf.save(fileName);
-  };
-
-  // Server-side PDF generation
-  const serverPDFExport = async (pageIndices: number[]) => {
-    // Store current page index to restore later
-    const originalPageIndex = currentPageIndex;
-    
-    // We'll send image data for each page to the server
-    const pageImages = [];
-    
-    // Pixel ratio for quality
-    const pixelRatio = exportConfig.quality === 'high' ? 3 : 2;
-    
-    // For each page in the range
-    for (let i = 0; i < pageIndices.length; i++) {
-      const pageIndex = pageIndices[i];
-      
-      // Update progress
-      setExportProgress(Math.round((i / pageIndices.length) * 50)); // First half of progress
-      
-      // Switch to page
-      setCurrentPageIndex(pageIndex);
-      
-      // Wait for the page to render
-      await new Promise(resolve => setTimeout(resolve, 150));
-      
-      // Get screenshot
-      if (stageRef.current) {
-        const dataURL = stageRef.current.toDataURL({
-          pixelRatio,
-          mimeType: 'image/jpeg',
-          quality: 0.9
-        });
-        
-        pageImages.push({
-          pageIndex,
-          dataURL
-        });
-      }
-    }
-    
-    // Restore original page index
-    setCurrentPageIndex(originalPageIndex);
-    
-    // Send to server
-    const response = await fetch(`${normalizeImagePath('/api/export/pdf')}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        projectId: currentProject?.id,
-        projectName: currentProject?.name,
-        pages: pageImages,
-        quality: exportConfig.quality
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`PDF generation failed: ${response.status}`);
-    }
-    
-    // Get the download URL
-    const { downloadUrl } = await response.json();
-    
-    // Update progress for second half
-    setExportProgress(75);
-    
-    // Download the PDF
-    const pdfResponse = await fetch(downloadUrl);
-    const pdfBlob = await pdfResponse.blob();
-    
-    // Update progress
-    setExportProgress(95);
-    
-    // Create a file name
-    const fileName = `${currentProject?.name.replace(/\s+/g, '-')}.pdf`;
-    
-    // Save the file
-    saveAs(pdfBlob, fileName);
-  };
-
-  // Add this to render the export dialog modal
-  const renderExportDialog = () => {
-    if (!showExportDialog) return null;
-    
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold">Export Manga</h3>
-            <button
-              onClick={() => setShowExportDialog(false)}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          
-          <div className="space-y-4">
-            {/* Export Type */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Export Format</label>
-              <div className="flex space-x-4">
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    className="form-radio h-4 w-4 text-indigo-600"
-                    value="png"
-                    checked={exportConfig.type === 'png'}
-                    onChange={() => setExportConfig(prev => ({ ...prev, type: 'png' }))}
-                  />
-                  <span className="ml-2">PNG Images (ZIP)</span>
-                </label>
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    className="form-radio h-4 w-4 text-indigo-600"
-                    value="pdf"
-                    checked={exportConfig.type === 'pdf'}
-                    onChange={() => setExportConfig(prev => ({ ...prev, type: 'pdf' }))}
-                  />
-                  <span className="ml-2">PDF Document</span>
-                </label>
-              </div>
-            </div>
-            
-            {/* Page Range */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pages to Export</label>
-              <div className="space-y-2">
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    className="form-radio h-4 w-4 text-indigo-600"
-                    value="all"
-                    checked={exportConfig.pageRange === 'all'}
-                    onChange={() => setExportConfig(prev => ({ ...prev, pageRange: 'all' }))}
-                  />
-                  <span className="ml-2">All Pages ({localPages.length})</span>
-                </label>
-                
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    className="form-radio h-4 w-4 text-indigo-600"
-                    value="current"
-                    checked={exportConfig.pageRange === 'current'}
-                    onChange={() => setExportConfig(prev => ({ ...prev, pageRange: 'current' }))}
-                  />
-                  <span className="ml-2">Current Page Only ({currentPageIndex + 1})</span>
-                </label>
-                
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    className="form-radio h-4 w-4 text-indigo-600"
-                    value="custom"
-                    checked={exportConfig.pageRange === 'custom'}
-                    onChange={() => setExportConfig(prev => ({ ...prev, pageRange: 'custom' }))}
-                  />
-                  <span className="ml-2">Custom Range</span>
-                </label>
-                
-                {exportConfig.pageRange === 'custom' && (
-                  <div className="ml-6">
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="e.g. 1-3, 5, 7-9"
-                      value={exportConfig.customRange}
-                      onChange={(e) => setExportConfig(prev => ({ ...prev, customRange: e.target.value }))}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Enter page numbers or ranges (e.g. "1-3, 5, 7-9")
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Quality */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Export Quality</label>
-              <div className="flex space-x-4">
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    className="form-radio h-4 w-4 text-indigo-600"
-                    value="normal"
-                    checked={exportConfig.quality === 'normal'}
-                    onChange={() => setExportConfig(prev => ({ ...prev, quality: 'normal' }))}
-                  />
-                  <span className="ml-2">Normal</span>
-                </label>
-                <label className="inline-flex items-center">
-                  <input
-                    type="radio"
-                    className="form-radio h-4 w-4 text-indigo-600"
-                    value="high"
-                    checked={exportConfig.quality === 'high'}
-                    onChange={() => setExportConfig(prev => ({ ...prev, quality: 'high' }))}
-                  />
-                  <span className="ml-2">High Resolution</span>
-                </label>
-              </div>
-            </div>
-            
-            {/* Export Button */}
-            <div className="pt-4">
-              <button
-                onClick={() => {
-                  setShowExportDialog(false);
-                  exportManga();
-                }}
-                disabled={isExporting}
-                className="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
-              >
-                {isExporting ? 'Exporting...' : 'Export'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   };
 
   // Add the status message component to render
@@ -2564,7 +2068,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       {/* Left Sidebar - Vertical Toolbar */}
       <div className="w-14 bg-gray-100 shadow-md flex flex-col items-center py-4 space-y-4">
         <button
-          className="p-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
           onClick={handleAddPanel}
           title="Add Panel"
         >
@@ -2572,7 +2076,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         </button>
         
         <button
-          className="p-2 bg-indigo-100 text-red-600 rounded-md hover:bg-indigo-200"
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
           onClick={handleDeletePanel}
           disabled={!selectedPanelId}
           title="Delete Panel"
@@ -2581,7 +2085,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         </button>
         
         <button
-          className="p-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
           onClick={() => setShowTemplateDialog(true)}
           title="Page Templates"
         >
@@ -2589,24 +2093,16 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         </button>
         
         <button
-          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
-          onClick={handleSaveSinglePage}
-          title="Export Current Page"
-        >
-          <Download size={20} />
-        </button>
-        
-        <button
-          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
-          onClick={() => setShowExportDialog(true)}
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+          onClick={onShowExport}
           title="Export Manga"
         >
           <FileDown size={20} />
         </button>
-
+        
         {/* Save Project */}
         <button
-          className="p-2 bg-indigo-100 text-green-600 rounded-md hover:bg-indigo-200"
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
           onClick={handleSaveProject}
           title="Save Project"
           disabled={isSaving || !hasUnsavedChanges}
@@ -2617,7 +2113,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         {/* Project Manager button */}
         <button
           onClick={onShowProjectManager}
-          className="p-2 bg-indigo-100 text-blue-600 rounded-md hover:bg-indigo-200"
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
           title="Project Manager"
         >
           <Folder size={20} />
@@ -3172,7 +2668,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
                       <h3 className="text-lg font-semibold">Dialogue</h3>
                       <div className="flex space-x-2">
                         <button
-                          className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+                          className="px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
                           onClick={handleAddDialogue}
                         >
                           Add Dialogue
@@ -3400,7 +2896,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         </div>
       </div>
 
-      {renderExportDialog()}
       {renderStatusMessage()}
   
       {/* Template Dialog Modal */}

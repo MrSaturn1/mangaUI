@@ -5,6 +5,7 @@ import MangaEditor, { Page, Project, Character } from '../components/MangaEditor
 import InitializeModels from '../components/InitializeModels';
 import { FloatingStatus } from '../components/FloatingStatus';
 import ProjectManager from '../components/ProjectManager';
+import ProjectExport from '../components/ProjectExport';
 import { API_ENDPOINT, API_BASE_URL } from '../config';
 
 export default function Home() {
@@ -27,11 +28,18 @@ export default function Home() {
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [pages, setPages] = useState<Page[]>([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [apiEndpoint] = useState(API_ENDPOINT);
+
+  // Export states
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   // Add state for tracking loading status
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [isLoadingCharacters, setIsLoadingCharacters] = useState(false);
+
+  // Page size configuration (should match your MangaEditor)
+  const pageSize = { width: 1500, height: 2250 }; // Manga proportions
 
   // Separate initialization checks
   useEffect(() => {
@@ -330,6 +338,16 @@ export default function Home() {
     }, 2000);
   };
 
+  // Handler for showing export dialog
+  const handleShowExport = () => {
+    setShowExportDialog(true);
+  };
+
+  // Handler for updating current page index (passed to MangaEditor)
+  const handlePageIndexChange = (newIndex: number) => {
+    setCurrentPageIndex(newIndex);
+  };
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {showInitializeDialog ? (
@@ -364,6 +382,17 @@ export default function Home() {
                 </div>
               )}
               
+              {/* Export dialog overlay */}
+              <ProjectExport
+                isOpen={showExportDialog}
+                onClose={() => setShowExportDialog(false)}
+                currentProject={currentProject}
+                pages={pages}
+                currentPageIndex={currentPageIndex}
+                pageSize={pageSize}
+                apiEndpoint={apiEndpoint}
+              />
+              
               <MangaEditor 
                 characters={characters} 
                 apiEndpoint={apiEndpoint}
@@ -373,6 +402,8 @@ export default function Home() {
                 setPages={setPages}
                 onSaveProject={handleSaveProject}
                 onShowProjectManager={() => setShowProjectManager(true)}
+                onShowExport={handleShowExport}
+                onPageIndexChange={handlePageIndexChange}
               />
             </>
           )}
