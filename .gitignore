@@ -16,14 +16,30 @@
 **/venv/
 **/.venv/
 
-# ML model files and generated content
+# ML model files and weights
 /backend/drawatoon-v1/
+/backend/diffsensei_weights/
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.pkl
+*.pickle
+
+# Generated content and outputs
 /backend/character_output/character_embeddings/*.pt
 /backend/character_output/character_images/keepers/*.png
 /backend/character_output/character_images/*.png
 /backend/manga_output/**/*.png
-/backend/manga_projects/*
-!/backend/manga_projects/
+/backend/manga_output/**/*.json
+/backend/manga_projects/**/panels/**/*.png
+/backend/manga_projects/**/exports/**/*.pdf
+/backend/manga_projects/**/history/**/*.png
+
+# Keep directory structure but ignore contents
+/backend/manga_projects/*/
+!/backend/manga_projects/.gitkeep
 
 # Build artifacts
 **/dist/
@@ -34,6 +50,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+lerna-debug.log*
 
 # Environment variables
 **/.env*
@@ -42,7 +59,52 @@ yarn-error.log*
 # OS files
 .DS_Store
 *.pem
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # TypeScript
 *.tsbuildinfo
-next-env.d.ts/backend/characters.json
+next-env.d.ts
+
+# Python specific
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Local development
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# Logs
+*.log
+logs/
+
+# Package manager lock files (keep one, ignore others)
+# If using npm, keep package-lock.json and ignore yarn.lock
+# If using yarn, keep yarn.lock and ignore package-lock.json
+# yarn.lock
