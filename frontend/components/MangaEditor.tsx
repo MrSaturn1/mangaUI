@@ -2067,57 +2067,87 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     <div className="flex h-screen overflow-hidden">
       {/* Left Sidebar - Vertical Toolbar */}
       <div className="w-14 bg-gray-100 shadow-md flex flex-col items-center py-4 space-y-4">
-        <button
-          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-          onClick={handleAddPanel}
-          title="Add Panel"
-        >
-          <Plus size={20} />
-        </button>
-        
-        <button
-          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
-          onClick={handleDeletePanel}
-          disabled={!selectedPanelId}
-          title="Delete Panel"
-        >
-          <Trash2 size={20} />
-        </button>
-        
-        <button
-          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-          onClick={() => setShowTemplateDialog(true)}
-          title="Page Templates"
-        >
-          <Layout size={20} />
-        </button>
-        
-        <button
-          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-          onClick={onShowExport}
-          title="Export Manga"
-        >
-          <FileDown size={20} />
-        </button>
-        
+        <div className="relative group">
+          <button
+            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+            onClick={handleAddPanel}
+          >
+            <Plus size={20} />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+            Add Panel
+            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button
+            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
+            onClick={handleDeletePanel}
+            disabled={!selectedPanelId}
+          >
+            <Trash2 size={20} />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+            Delete Panel
+            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button
+            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+            onClick={() => setShowTemplateDialog(true)}
+          >
+            <Layout size={20} />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+            Page Templates
+            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <button
+            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+            onClick={onShowExport}
+          >
+            <FileDown size={20} />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+            Export Manga
+            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
+          </div>
+        </div>
+
         {/* Save Project */}
-        <button
-          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
-          onClick={handleSaveProject}
-          title="Save Project"
-          disabled={isSaving || !hasUnsavedChanges}
-        >
-          <Save size={20} />
-        </button>
-        
+        <div className="relative group">
+          <button
+            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
+            onClick={handleSaveProject}
+            disabled={isSaving || !hasUnsavedChanges}
+          >
+            <Save size={20} />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+            Save Project
+            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
+          </div>
+        </div>
+
         {/* Project Manager button */}
-        <button
-          onClick={onShowProjectManager}
-          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-          title="Project Manager"
-        >
-          <Folder size={20} />
-        </button>
+        <div className="relative group">
+          <button
+            onClick={onShowProjectManager}
+            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+          >
+            <Folder size={20} />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+            Project Manager
+            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
+          </div>
+        </div>
       </div>
   
       {/* Main Content Area */}
