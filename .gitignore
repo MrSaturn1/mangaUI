@@ -31,11 +31,8 @@
 /backend/character_output/character_embeddings/*.pt
 /backend/character_output/character_images/keepers/*.png
 /backend/character_output/character_images/*.png
-/backend/manga_output/**/*.png
-/backend/manga_output/**/*.json
-/backend/manga_projects/**/panels/**/*.png
-/backend/manga_projects/**/exports/**/*.pdf
-/backend/manga_projects/**/history/**/*.png
+/backend/manga_output/
+/backend/manga_projects/
 
 # Keep directory structure but ignore contents
 /backend/manga_projects/*/
