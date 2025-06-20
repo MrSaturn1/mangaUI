@@ -12,6 +12,7 @@ from torch.nn.utils.rnn import pad_sequence
 import torch.serialization
 from numpy._core.multiarray import _reconstruct
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
+import torch.nn.functional as F
 
 class PanelEstimator:
     """Estimates appropriate number of panels for a scene based on content analysis"""
@@ -408,9 +409,145 @@ class MangaGenerator:
         
         # Initialize the model pipeline
         self.init_pipeline()
+
+        # FIX THE ref_embedding_proj LAYER
+        self.fix_ref_embedding_proj()
         
         # Initialize the upscaler
         self.init_upscaler()
+    
+    def fix_ref_embedding_proj(self):
+        """
+        Fix the ref_embedding_proj layer that's destroying character embeddings.
+        This is the critical fix for character consistency!
+        """
+        print("🔧 FIXING ref_embedding_proj LAYER...")
+        print("=" * 40)
+        
+        proj_layer = self.pipe.transformer.ip_adapter.ref_embedding_proj
+        
+        # Analyze current state
+        print(f"📊 Current ref_embedding_proj:")
+        print(f"  Input size: {proj_layer.in_features}")
+        print(f"  Output size: {proj_layer.out_features}")
+        print(f"  Weight range: [{proj_layer.weight.min():.4f}, {proj_layer.weight.max():.4f}]")
+        print(f"  Weight std: {proj_layer.weight.std():.4f}")
+        print(f"  Weight dtype: {proj_layer.weight.dtype}")
+        print(f"  Bias dtype: {proj_layer.bias.dtype if proj_layer.bias is not None else 'None'}")
+        
+        # Test current behavior - ENSURE CONSISTENT DTYPES
+        test_embedding = torch.randn(768, device=proj_layer.weight.device, dtype=proj_layer.weight.dtype)
+        test_embedding = F.normalize(test_embedding, p=2, dim=0)
+        
+        with torch.no_grad():
+            # For MPS compatibility, convert to float32 for operations
+            if proj_layer.weight.device.type == 'mps' and proj_layer.weight.dtype == torch.float16:
+                # Create float32 versions for computation
+                weight_f32 = proj_layer.weight.data.float()
+                bias_f32 = proj_layer.bias.data.float() if proj_layer.bias is not None else None
+                test_embedding_f32 = test_embedding.float()
+                
+                # Manual linear operation to avoid parameter assignment issues
+                original_output = torch.matmul(test_embedding_f32.unsqueeze(0), weight_f32.t())
+                if bias_f32 is not None:
+                    original_output = original_output + bias_f32
+            else:
+                original_output = proj_layer(test_embedding.unsqueeze(0))
+            
+            original_reshaped = original_output.reshape(1, 4, -1)
+            
+            # Check correlation with input
+            flat_output = original_reshaped.flatten()[:768]
+            test_for_corr = test_embedding_f32 if 'test_embedding_f32' in locals() else test_embedding
+            
+            correlation = torch.corrcoef(torch.stack([
+                test_for_corr,
+                flat_output
+            ]))[0, 1].item()
+        
+        print(f"  Input-output correlation: {correlation:.4f}")
+        
+        if abs(correlation) < 0.1:
+            print("🚨 CONFIRMED: ref_embedding_proj is destroying embeddings!")
+            needs_fix = True
+        else:
+            print("✅ ref_embedding_proj seems reasonable")
+            needs_fix = False
+        
+        if needs_fix:
+            print(f"\n🔧 Applying identity block fix...")
+            self.apply_identity_block_fix(proj_layer)
+            
+            # Test the fix
+            with torch.no_grad():
+                test_embedding = torch.randn(768, device=proj_layer.weight.device, dtype=proj_layer.weight.dtype)
+                test_embedding = F.normalize(test_embedding, p=2, dim=0)
+                
+                # Test with same method as before
+                if proj_layer.weight.device.type == 'mps' and proj_layer.weight.dtype == torch.float16:
+                    weight_f32 = proj_layer.weight.data.float()
+                    bias_f32 = proj_layer.bias.data.float() if proj_layer.bias is not None else None
+                    test_embedding_f32 = test_embedding.float()
+                    
+                    fixed_output = torch.matmul(test_embedding_f32.unsqueeze(0), weight_f32.t())
+                    if bias_f32 is not None:
+                        fixed_output = fixed_output + bias_f32
+                    test_for_corr = test_embedding_f32
+                else:
+                    fixed_output = proj_layer(test_embedding.unsqueeze(0))
+                    test_for_corr = test_embedding
+                
+                fixed_reshaped = fixed_output.reshape(1, 4, -1)
+                flat_fixed = fixed_reshaped.flatten()[:768]
+                
+                fixed_correlation = torch.corrcoef(torch.stack([
+                    test_for_corr,
+                    flat_fixed
+                ]))[0, 1].item()
+            
+            print(f"✅ FIXED! New correlation: {fixed_correlation:.4f}")
+            print(f"✅ Character embeddings should now work properly!")
+        else:
+            print("✅ No fix needed - ref_embedding_proj is working correctly")
+
+    def apply_identity_block_fix(self, proj_layer):
+        """Apply the identity block fix to preserve character embeddings"""
+        in_features = proj_layer.in_features   # 768
+        out_features = proj_layer.out_features # 4608
+        block_size = out_features // 4         # 1152
+        
+        # Store original dtype
+        original_dtype = proj_layer.weight.dtype
+        
+        with torch.no_grad():
+            # Create new weight matrix in float32 first for precision
+            new_weight = torch.zeros(out_features, in_features, dtype=torch.float32, device=proj_layer.weight.device)
+            
+            # Create 4 blocks, each starting as identity-like
+            for i in range(4):
+                start_idx = i * block_size
+                end_idx = start_idx + block_size
+                
+                # Each block gets the full input embedding
+                if block_size >= in_features:
+                    # If block is larger than input, use identity for input dims
+                    new_weight[start_idx:start_idx + in_features, :] = torch.eye(in_features, dtype=torch.float32, device=proj_layer.weight.device)
+                    # Add small random components for the extra dimensions
+                    if block_size > in_features:
+                        extra_rows = block_size - in_features
+                        new_weight[start_idx + in_features:end_idx, :] = torch.randn(extra_rows, in_features, dtype=torch.float32, device=proj_layer.weight.device) * 0.01
+                else:
+                    # If block is smaller, use truncated identity
+                    new_weight[start_idx:end_idx, :block_size] = torch.eye(block_size, dtype=torch.float32, device=proj_layer.weight.device)
+            
+            # Convert to original dtype and assign using .data to avoid parameter type issues
+            proj_layer.weight.data.copy_(new_weight.to(original_dtype))
+            
+            # Zero out bias
+            if proj_layer.bias is not None:
+                proj_layer.bias.data.zero_()
+        
+        print(f"  ✅ Created 4 identity-like blocks of size {block_size}")
     
     def init_pipeline(self):
         """Initialize the Drawatoon pipeline"""
@@ -483,15 +620,12 @@ class MangaGenerator:
                     print(f"  reference_embeddings shapes: {[[emb.shape if hasattr(emb, 'shape') else 'N/A' for emb in batch] for batch in reference_embeddings]}")
                 try:
                     ip_hidden_states, ip_attention_mask = self.ip_adapter(text_bboxes, character_bboxes, reference_embeddings, cfg_on_10_percent)
-                    print(f"IP adapter succeeded, output shape: {ip_hidden_states.shape}")
                     
                     # Handle CFG: if batch_size > 1, duplicate IP adapter outputs
                     if batch_size > ip_hidden_states.shape[0]:
-                        print(f"Duplicating IP adapter outputs for CFG: {ip_hidden_states.shape[0]} -> {batch_size}")
                         # Duplicate for CFG (typically batch_size=2 for negative+positive)
                         ip_hidden_states = ip_hidden_states.repeat(batch_size, 1, 1)
                         ip_attention_mask = ip_attention_mask.repeat(batch_size, 1)
-                        print(f"After duplication: ip_hidden_states shape: {ip_hidden_states.shape}")
                         
                 except Exception as e:
                     print(f"IP adapter failed: {e}")
@@ -527,9 +661,6 @@ class MangaGenerator:
 
             # 2. Blocks
             for i, block in enumerate(self.transformer_blocks):
-                print(f"Processing transformer block {i}, hidden_states shape: {hidden_states.shape}")
-                if ip_hidden_states is not None:
-                    print(f"  ip_hidden_states shape: {ip_hidden_states.shape}")
                 
                 if torch.is_grad_enabled() and self.gradient_checkpointing:
                     def create_custom_forward(module, return_dict=None):
@@ -579,12 +710,6 @@ class MangaGenerator:
                         import traceback
                         traceback.print_exc()
                         raise e
-                
-                # Only print for first few blocks to avoid spam
-                if i < 3:
-                    print(f"  Block {i} completed, output shape: {hidden_states.shape}")
-                elif i == 3:
-                    print(f"  (Suppressing further block output for brevity...)")
 
             # 3. Output
             shift, scale = (
@@ -777,7 +902,7 @@ class MangaGenerator:
         if use_character_descriptions is None:
             # REVERT TO DESCRIPTIONS-FIRST APPROACH: Use descriptions when available, skip embeddings
             # This avoids interference between text and visual channels
-            use_character_descriptions = True
+            use_character_descriptions = False
         
         # Add characters with enhanced descriptions
         if use_character_descriptions:

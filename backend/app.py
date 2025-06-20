@@ -54,12 +54,17 @@ class EndpointFilter(logging.Filter):
         try:
             # Get the message from different possible sources
             message = ""
-            if hasattr(record, 'args') and record.args:
-                message = str(record.args[0]) if record.args else ""
-            if not message and hasattr(record, 'getMessage'):
+            
+            # Try multiple ways to get the log message
+            if hasattr(record, 'getMessage'):
                 message = str(record.getMessage())
-            if not message:
-                message = str(record.msg) if hasattr(record, 'msg') else ""
+            elif hasattr(record, 'msg'):
+                message = str(record.msg % record.args) if record.args else str(record.msg)
+            elif hasattr(record, 'args') and record.args:
+                message = str(record.args[0])
+            
+            # Also check the record name/logger name
+            logger_name = getattr(record, 'name', '')
             
             # List of endpoints to filter out (case insensitive)
             noisy_endpoints = [
@@ -69,21 +74,55 @@ class EndpointFilter(logging.Filter):
                 '/api/check_panel_status',
                 'GET /api/status',
                 'GET /api/get_characters',
-                'GET /api/init/status',
-                'GET /api/check_panel_status'
+                'GET /api/init/status', 
+                'GET /api/check_panel_status',
+                '"GET /api/status',
+                '"GET /api/get_characters',
+                '"GET /api/init/status',
+                '"GET /api/check_panel_status'
+            ]
+            
+            # HTTP status codes to filter
+            noisy_patterns = [
+                '200 OK',
+                '- "GET /api/status',
+                '- "GET /api/get_characters',
+                '- "GET /api/init/status', 
+                '- "GET /api/check_panel_status'
             ]
             
             # Filter out if any noisy endpoint is in the message
             message_lower = message.lower()
+            
+            # Check endpoints
             for endpoint in noisy_endpoints:
                 if endpoint.lower() in message_lower:
                     return False
+            
+            # Check patterns  
+            for pattern in noisy_patterns:
+                if pattern.lower() in message_lower:
+                    return False
                     
+            # Also filter uvicorn access logs for these endpoints
+            if 'uvicorn.access' in logger_name:
+                for endpoint in ['/api/status', '/api/get_characters', '/api/init/status', '/api/check_panel_status']:
+                    if endpoint in message_lower:
+                        return False
+                        
         except Exception:
             # If there's any error in filtering, allow the log through
             pass
             
         return True
+
+# Apply the filter to multiple loggers that might be generating noise
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+logging.getLogger("fastapi").addFilter(EndpointFilter()) 
+logging.getLogger("uvicorn").addFilter(EndpointFilter())
+
+# Also set uvicorn access logger to WARNING level to reduce noise
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 # Apply filter to uvicorn access logger and other potential loggers
 for logger_name in ["uvicorn.access", "uvicorn", "fastapi"]:
@@ -1669,12 +1708,8 @@ async def get_panel_history(project_id: str, panel_index: int):
         generations = []
         current_generation = None
         
-        print(f"Loading panel history from: {history_dir}")
-        print(f"Found {len(history_data.get('generations', []))} generations in history")
-        
         for generation in history_data.get('generations', []):
             image_path = history_dir / f"{generation['timestamp']}.png"
-            print(f"Looking for image: {image_path}")
             if image_path.exists():
                 try:
                     with open(image_path, 'rb') as img_file:
@@ -1683,7 +1718,6 @@ async def get_panel_history(project_id: str, panel_index: int):
                             print(f"Warning: Empty panel image file at {image_path}")
                             continue
                         image_data = f"data:image/png;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
-                        print(f"Successfully loaded image: {len(image_bytes)} bytes")
                     
                     gen_data = {
                         'timestamp': generation['timestamp'],

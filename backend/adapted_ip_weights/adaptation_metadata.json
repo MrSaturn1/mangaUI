@@ -1,0 +1,33 @@
+{
+  "source": "DiffSensei resampler adaptation",
+  "weights_count": 5,
+  "weight_info": {
+    "ip_attn.to_q.weight": [
+      2048,
+      1280
+    ],
+    "ip_attn.to_k.weight": [
+      2048,
+      1280
+    ],
+    "ip_attn.to_v.weight": [
+      2048,
+      1280
+    ],
+    "ip_attn.to_out.0.weight": [
+      2048,
+      1280
+    ],
+    "ip_attn.to_out.0.bias": [
+      2048
+    ]
+  },
+  "adaptation_strategy": "resampler_to_ip_attention",
+  "scaling_factor": 0.1,
+  "usage_instructions": [
+    "Load these weights into Drawatoon's IP attention layers",
+    "Use apply_ip_weights_to_drawatoon() function",
+    "Test with character embeddings",
+    "Fine-tune scaling if needed"
+  ]
+}

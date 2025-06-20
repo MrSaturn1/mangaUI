@@ -1,542 +1,722 @@
 {
   "DOG": {
     "name": "DOG",
-    "image_path": "character_output/character_images/keepers/DOG.png",
+    "image_path": "character_output/character_images/DOG.png",
     "embedding_path": "character_output/character_embeddings/DOG.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "RAT KING": {
     "name": "RAT KING",
-    "image_path": "character_output/character_images/keepers/RAT KING.png",
+    "image_path": "character_output/character_images/RAT KING.png",
     "embedding_path": "character_output/character_embeddings/RAT KING.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "GROOM": {
     "name": "GROOM",
-    "image_path": "character_output/character_images/keepers/GROOM.png",
+    "image_path": "character_output/character_images/GROOM.png",
     "embedding_path": "character_output/character_embeddings/GROOM.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "goons": {
     "name": "goons",
-    "image_path": "character_output/character_images/keepers/goons.png",
+    "image_path": "character_output/character_images/goons.png",
     "embedding_path": "character_output/character_embeddings/goons.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "COOL SPY": {
     "name": "COOL SPY",
-    "image_path": "character_output/character_images/keepers/COOL SPY.png",
+    "image_path": "character_output/character_images/COOL SPY.png",
     "embedding_path": "character_output/character_embeddings/COOL SPY.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "DELIVERY GUYS": {
     "name": "DELIVERY GUYS",
-    "image_path": "character_output/character_images/keepers/DELIVERY GUYS.png",
+    "image_path": "character_output/character_images/DELIVERY GUYS.png",
     "embedding_path": "character_output/character_embeddings/DELIVERY GUYS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "ARMY OFFICER": {
     "name": "ARMY OFFICER",
-    "image_path": "character_output/character_images/keepers/ARMY OFFICER.png",
+    "image_path": "character_output/character_images/ARMY OFFICER.png",
     "embedding_path": "character_output/character_embeddings/ARMY OFFICER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "Z": {
     "name": "Z",
-    "image_path": "character_output/character_images/keepers/Z.png",
+    "image_path": "character_output/character_images/Z.png",
     "embedding_path": "character_output/character_embeddings/Z.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "YOHAN": {
     "name": "YOHAN",
-    "image_path": "character_output/character_images/keepers/YOHAN.png",
+    "image_path": "character_output/character_images/YOHAN.png",
     "embedding_path": "character_output/character_embeddings/YOHAN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "JUNK WARDEN": {
     "name": "JUNK WARDEN",
-    "image_path": "character_output/character_images/keepers/JUNK WARDEN.png",
+    "image_path": "character_output/character_images/JUNK WARDEN.png",
     "embedding_path": "character_output/character_embeddings/JUNK WARDEN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "LANDSCAPERS": {
     "name": "LANDSCAPERS",
-    "image_path": "character_output/character_images/keepers/LANDSCAPERS.png",
+    "image_path": "character_output/character_images/LANDSCAPERS.png",
     "embedding_path": "character_output/character_embeddings/LANDSCAPERS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "BRIDE'S FATHER": {
     "name": "BRIDE'S FATHER",
-    "image_path": "character_output/character_images/keepers/BRIDE'S FATHER.png",
+    "image_path": "character_output/character_images/BRIDE'S FATHER.png",
     "embedding_path": "character_output/character_embeddings/BRIDE'S FATHER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "BIG DEAL": {
     "name": "BIG DEAL",
-    "image_path": "character_output/character_images/keepers/BIG DEAL.png",
+    "image_path": "character_output/character_images/BIG DEAL.png",
     "embedding_path": "character_output/character_embeddings/BIG DEAL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "CHRISTINE": {
     "name": "CHRISTINE",
-    "image_path": "character_output/character_images/keepers/CHRISTINE.png",
+    "image_path": "character_output/character_images/CHRISTINE.png",
     "embedding_path": "character_output/character_embeddings/CHRISTINE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "DINERS": {
     "name": "DINERS",
-    "image_path": "character_output/character_images/keepers/DINERS.png",
+    "image_path": "character_output/character_images/DINERS.png",
     "embedding_path": "character_output/character_embeddings/DINERS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "CROWD": {
     "name": "CROWD",
-    "image_path": "character_output/character_images/keepers/CROWD.png",
+    "image_path": "character_output/character_images/CROWD.png",
     "embedding_path": "character_output/character_embeddings/CROWD.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "PARTY CROWD": {
     "name": "PARTY CROWD",
-    "image_path": "character_output/character_images/keepers/PARTY CROWD.png",
+    "image_path": "character_output/character_images/PARTY CROWD.png",
     "embedding_path": "character_output/character_embeddings/PARTY CROWD.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "JONNO": {
     "name": "JONNO",
-    "image_path": "character_output/character_images/keepers/JONNO.png",
+    "image_path": "character_output/character_images/JONNO.png",
     "embedding_path": "character_output/character_embeddings/JONNO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "RAT": {
     "name": "RAT",
-    "image_path": "character_output/character_images/keepers/RAT.png",
+    "image_path": "character_output/character_images/RAT.png",
     "embedding_path": "character_output/character_embeddings/RAT.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "LEX": {
     "name": "LEX",
-    "image_path": "character_output/character_images/keepers/LEX.png",
+    "image_path": "character_output/character_images/LEX.png",
     "embedding_path": "character_output/character_embeddings/LEX.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "LEO": {
     "name": "LEO",
-    "image_path": "character_output/character_images/keepers/LEO.png",
+    "image_path": "character_output/character_images/LEO.png",
     "embedding_path": "character_output/character_embeddings/LEO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "CHEF": {
     "name": "CHEF",
-    "image_path": "character_output/character_images/keepers/CHEF.png",
+    "image_path": "character_output/character_images/CHEF.png",
     "embedding_path": "character_output/character_embeddings/CHEF.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "DJ": {
     "name": "DJ",
-    "image_path": "character_output/character_images/keepers/DJ.png",
+    "image_path": "character_output/character_images/DJ.png",
     "embedding_path": "character_output/character_embeddings/DJ.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "KIDS": {
     "name": "KIDS",
-    "image_path": "character_output/character_images/keepers/KIDS.png",
+    "image_path": "character_output/character_images/KIDS.png",
     "embedding_path": "character_output/character_embeddings/KIDS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "CUTE GIRL": {
     "name": "CUTE GIRL",
-    "image_path": "character_output/character_images/keepers/CUTE GIRL.png",
+    "image_path": "character_output/character_images/CUTE GIRL.png",
     "embedding_path": "character_output/character_embeddings/CUTE GIRL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "SUPERMODELS": {
     "name": "SUPERMODELS",
-    "image_path": "character_output/character_images/keepers/SUPERMODELS.png",
+    "image_path": "character_output/character_images/SUPERMODELS.png",
     "embedding_path": "character_output/character_embeddings/SUPERMODELS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "PILOT": {
     "name": "PILOT",
-    "image_path": "character_output/character_images/keepers/PILOT.png",
+    "image_path": "character_output/character_images/PILOT.png",
     "embedding_path": "character_output/character_embeddings/PILOT.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "FRANCISCO": {
     "name": "FRANCISCO",
-    "image_path": "character_output/character_images/keepers/FRANCISCO.png",
+    "image_path": "character_output/character_images/FRANCISCO.png",
     "embedding_path": "character_output/character_embeddings/FRANCISCO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "BRIDE": {
     "name": "BRIDE",
-    "image_path": "character_output/character_images/keepers/BRIDE.png",
+    "image_path": "character_output/character_images/BRIDE.png",
     "embedding_path": "character_output/character_embeddings/BRIDE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "DRIVER": {
     "name": "DRIVER",
-    "image_path": "character_output/character_images/keepers/DRIVER.png",
+    "image_path": "character_output/character_images/DRIVER.png",
     "embedding_path": "character_output/character_embeddings/DRIVER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "MAX": {
     "name": "MAX",
-    "image_path": "character_output/character_images/keepers/MAX.png",
+    "image_path": "character_output/character_images/MAX.png",
     "embedding_path": "character_output/character_embeddings/MAX.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "NED": {
     "name": "NED",
-    "image_path": "character_output/character_images/keepers/NED.png",
+    "image_path": "character_output/character_images/NED.png",
     "embedding_path": "character_output/character_embeddings/NED.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "VALERIE": {
     "name": "VALERIE",
-    "image_path": "character_output/character_images/keepers/VALERIE.png",
+    "image_path": "character_output/character_images/VALERIE.png",
     "embedding_path": "character_output/character_embeddings/VALERIE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "GOON 3": {
     "name": "GOON 3",
-    "image_path": "character_output/character_images/keepers/GOON 3.png",
+    "image_path": "character_output/character_images/GOON 3.png",
     "embedding_path": "character_output/character_embeddings/GOON 3.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "YASIM": {
     "name": "YASIM",
-    "image_path": "character_output/character_images/keepers/YASIM.png",
+    "image_path": "character_output/character_images/YASIM.png",
     "embedding_path": "character_output/character_embeddings/YASIM.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "LOGAN": {
     "name": "LOGAN",
-    "image_path": "character_output/character_images/keepers/LOGAN.png",
+    "image_path": "character_output/character_images/LOGAN.png",
     "embedding_path": "character_output/character_embeddings/LOGAN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "CATHERINE": {
     "name": "CATHERINE",
-    "image_path": "character_output/character_images/keepers/CATHERINE.png",
+    "image_path": "character_output/character_images/CATHERINE.png",
     "embedding_path": "character_output/character_embeddings/CATHERINE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "HANK": {
     "name": "HANK",
-    "image_path": "character_output/character_images/keepers/HANK.png",
+    "image_path": "character_output/character_images/HANK.png",
     "embedding_path": "character_output/character_embeddings/HANK.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "KAYLA": {
     "name": "KAYLA",
-    "image_path": "character_output/character_images/keepers/KAYLA.png",
+    "image_path": "character_output/character_images/KAYLA.png",
     "embedding_path": "character_output/character_embeddings/KAYLA.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "Z'S MOM": {
     "name": "Z'S MOM",
-    "image_path": "character_output/character_images/keepers/Z'S MOM.png",
+    "image_path": "character_output/character_images/Z'S MOM.png",
     "embedding_path": "character_output/character_embeddings/Z'S MOM.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "HOMELESS GUY": {
     "name": "HOMELESS GUY",
-    "image_path": "character_output/character_images/keepers/HOMELESS GUY.png",
+    "image_path": "character_output/character_images/HOMELESS GUY.png",
     "embedding_path": "character_output/character_embeddings/HOMELESS GUY.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "ICE CREAM MAN": {
     "name": "ICE CREAM MAN",
-    "image_path": "character_output/character_images/keepers/ICE CREAM MAN.png",
+    "image_path": "character_output/character_images/ICE CREAM MAN.png",
     "embedding_path": "character_output/character_embeddings/ICE CREAM MAN.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "JEFFREY": {
     "name": "JEFFREY",
-    "image_path": "character_output/character_images/keepers/JEFFREY.png",
+    "image_path": "character_output/character_images/JEFFREY.png",
     "embedding_path": "character_output/character_embeddings/JEFFREY.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998211860657,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "DWEEB": {
     "name": "DWEEB",
-    "image_path": "character_output/character_images/keepers/DWEEB.png",
+    "image_path": "character_output/character_images/DWEEB.png",
     "embedding_path": "character_output/character_embeddings/DWEEB.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "CHAD": {
     "name": "CHAD",
-    "image_path": "character_output/character_images/keepers/CHAD.png",
+    "image_path": "character_output/character_images/CHAD.png",
     "embedding_path": "character_output/character_embeddings/CHAD.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "ANTON": {
     "name": "ANTON",
-    "image_path": "character_output/character_images/keepers/ANTON.png",
+    "image_path": "character_output/character_images/ANTON.png",
     "embedding_path": "character_output/character_embeddings/ANTON.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "ANCHOR": {
     "name": "ANCHOR",
-    "image_path": "character_output/character_images/keepers/ANCHOR.png",
+    "image_path": "character_output/character_images/ANCHOR.png",
     "embedding_path": "character_output/character_embeddings/ANCHOR.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "GIO": {
     "name": "GIO",
-    "image_path": "character_output/character_images/keepers/GIO.png",
+    "image_path": "character_output/character_images/GIO.png",
     "embedding_path": "character_output/character_embeddings/GIO.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "LINE COOKS": {
     "name": "LINE COOKS",
-    "image_path": "character_output/character_images/keepers/LINE COOKS.png",
+    "image_path": "character_output/character_images/LINE COOKS.png",
     "embedding_path": "character_output/character_embeddings/LINE COOKS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "ROLPH": {
     "name": "ROLPH",
-    "image_path": "character_output/character_images/keepers/ROLPH.png",
+    "image_path": "character_output/character_images/ROLPH.png",
     "embedding_path": "character_output/character_embeddings/ROLPH.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "MRS. ABDUL": {
     "name": "MRS. ABDUL",
-    "image_path": "character_output/character_images/keepers/MRS. ABDUL.png",
+    "image_path": "character_output/character_images/MRS. ABDUL.png",
     "embedding_path": "character_output/character_embeddings/MRS. ABDUL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "HOSTESS": {
     "name": "HOSTESS",
-    "image_path": "character_output/character_images/keepers/HOSTESS.png",
+    "image_path": "character_output/character_images/HOSTESS.png",
     "embedding_path": "character_output/character_embeddings/HOSTESS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0000001192092896,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "MR. ABDUL": {
     "name": "MR. ABDUL",
-    "image_path": "character_output/character_images/keepers/MR. ABDUL.png",
+    "image_path": "character_output/character_images/MR. ABDUL.png",
     "embedding_path": "character_output/character_embeddings/MR. ABDUL.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998211860657,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "REPORTER": {
     "name": "REPORTER",
-    "image_path": "character_output/character_images/keepers/REPORTER.png",
+    "image_path": "character_output/character_images/REPORTER.png",
     "embedding_path": "character_output/character_embeddings/REPORTER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "MIKE": {
     "name": "MIKE",
-    "image_path": "character_output/character_images/keepers/MIKE.png",
+    "image_path": "character_output/character_images/MIKE.png",
     "embedding_path": "character_output/character_embeddings/MIKE.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 1.0,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "GROOM'S MOTHER": {
     "name": "GROOM'S MOTHER",
-    "image_path": "character_output/character_images/keepers/GROOM'S MOTHER.png",
+    "image_path": "character_output/character_images/GROOM'S MOTHER.png",
     "embedding_path": "character_output/character_embeddings/GROOM'S MOTHER.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "COP 2": {
     "name": "COP 2",
-    "image_path": "character_output/character_images/keepers/COP 2.png",
+    "image_path": "character_output/character_images/COP 2.png",
     "embedding_path": "character_output/character_embeddings/COP 2.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999998807907104,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "DISHWASHERS": {
     "name": "DISHWASHERS",
-    "image_path": "character_output/character_images/keepers/DISHWASHERS.png",
+    "image_path": "character_output/character_images/DISHWASHERS.png",
     "embedding_path": "character_output/character_embeddings/DISHWASHERS.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "COP 1": {
     "name": "COP 1",
-    "image_path": "character_output/character_images/keepers/COP 1.png",
+    "image_path": "character_output/character_images/COP 1.png",
     "embedding_path": "character_output/character_embeddings/COP 1.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   },
   "MAYOR": {
     "name": "MAYOR",
-    "image_path": "character_output/character_images/keepers/MAYOR.png",
+    "image_path": "character_output/character_images/MAYOR.png",
     "embedding_path": "character_output/character_embeddings/MAYOR.pt",
-    "embedding_type": "magi_v2_768",
+    "embedding_type": "drawatoon_aligned_magi_768",
     "embedding_shape": [
       768
-    ]
+    ],
+    "normalized": true,
+    "norm": 0.9999999403953552,
+    "alignment_strategy": "imagenet_normalization_cls_token"
   }
 }

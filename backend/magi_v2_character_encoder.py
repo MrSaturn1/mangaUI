@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Proper Magi v2 character encoder using the actual predict_crop_embeddings method.
-This extracts real character embeddings using Magi's internal character encoder.
+Updated Magi v2 character encoder with proper normalization and directory structure.
+Uses character_output/character_images/ as the main source directory.
 """
 
 import os
@@ -23,9 +23,8 @@ class MagiV2CharacterEncoder:
             
         self.output_dir = Path(output_dir)
         
-        # Paths for character images and embeddings
+        # Updated paths - use character_images as main directory
         self.character_images_dir = self.output_dir / "character_images"
-        self.keepers_dir = self.character_images_dir / "keepers"
         self.embeddings_dir = self.output_dir / "character_embeddings"
         self.embeddings_dir.mkdir(parents=True, exist_ok=True)
         
@@ -68,24 +67,16 @@ class MagiV2CharacterEncoder:
             print(f"Error loading Magi v2 model: {e}")
             self.magi_model = None
     
-    def read_image_as_np_array(self, image_path):
-        """Convert image to numpy array as expected by Magi"""
-        with open(image_path, "rb") as file:
-            image = Image.open(file).convert("L").convert("RGB")
-            image = np.array(image)
-        return image
-    
     def extract_magi_v2_embedding(self, image_path, character_name):
-        """Extract character embedding using Magi v2's crop_embedding_model directly"""
+        """Extract character embedding using Magi v2's crop_embedding_model directly with normalization"""
         if self.magi_model is None:
-            print(f"Magi model not loaded, using random embedding for {character_name}")
-            return torch.randn(768).float()
+            print(f"Magi model not loaded, using random normalized embedding for {character_name}")
+            # Return normalized random embedding as fallback
+            random_embedding = torch.randn(768).float()
+            return random_embedding / torch.norm(random_embedding)
         
         try:
             # Load and preprocess the image for ViTMAE (224x224)
-            from PIL import Image
-            import torchvision.transforms as transforms
-            
             image = Image.open(image_path).convert("RGB")
             
             # Preprocess for ViTMAE model (224x224)
@@ -100,7 +91,7 @@ class MagiV2CharacterEncoder:
             print(f"Extracting Magi v2 embedding for {character_name}")
             print(f"Preprocessed image shape: {pixel_values.shape}")
             
-            # Use Magi's crop_embedding_model directly (bypasses broken predict_crop_embeddings)
+            # Use Magi's crop_embedding_model directly
             crop_model = self.magi_model.crop_embedding_model
             
             with torch.no_grad():
@@ -113,7 +104,9 @@ class MagiV2CharacterEncoder:
                 embedding = embedding.squeeze(0)  # Remove batch dimension -> [768]
             else:
                 print(f"Unexpected outputs from Magi crop model: {type(outputs)}")
-                return torch.randn(768).float()
+                # Return normalized random embedding
+                random_embedding = torch.randn(768).float()
+                return random_embedding / torch.norm(random_embedding)
             
             # Move to CPU
             embedding = embedding.cpu().float()
@@ -127,38 +120,79 @@ class MagiV2CharacterEncoder:
                     padding = torch.zeros(768 - embedding.shape[0])
                     embedding = torch.cat([embedding, padding])
             
+            # NORMALIZE THE EMBEDDING - this is critical!
+            embedding_norm = torch.norm(embedding)
+            if embedding_norm > 0:
+                embedding = embedding / embedding_norm
+            else:
+                print(f"Warning: Zero norm embedding for {character_name}, using random normalized embedding")
+                embedding = torch.randn(768)
+                embedding = embedding / torch.norm(embedding)
+            
             print(f"Successfully extracted Magi v2 embedding for {character_name}: shape {embedding.shape}")
             print(f"Embedding stats: min={embedding.min():.4f}, max={embedding.max():.4f}, mean={embedding.mean():.4f}")
+            print(f"Embedding norm: {torch.norm(embedding):.4f}")  # Should be 1.0
             return embedding
             
         except Exception as e:
             print(f"Error extracting Magi v2 embedding for {character_name}: {e}")
             import traceback
             traceback.print_exc()
-            # Return random embedding as fallback
-            return torch.randn(768).float()
+            # Return normalized random embedding as fallback
+            random_embedding = torch.randn(768).float()
+            return random_embedding / torch.norm(random_embedding)
     
-    def generate_all_keeper_embeddings(self):
-        """Generate Magi v2 embeddings for all character images in the keepers folder"""
-        if not self.keepers_dir.exists():
-            print(f"Keepers directory not found: {self.keepers_dir}")
-            return
+    def find_character_images(self):
+        """Find all character images in the character_images directory"""
+        if not self.character_images_dir.exists():
+            print(f"Character images directory not found: {self.character_images_dir}")
+            return []
+        
+        # Look for PNG files in the main character_images directory
+        character_images = list(self.character_images_dir.glob("*.png"))
+        
+        # Also check the legacy keepers subdirectory for backwards compatibility
+        keepers_dir = self.character_images_dir / "keepers"
+        if keepers_dir.exists():
+            keeper_images = list(keepers_dir.glob("*.png"))
+            keeper_images = [img for img in keeper_images if not img.name.endswith("_card.png")]
             
-        # Get all PNG files in the keepers folder
-        keeper_images = list(self.keepers_dir.glob("*.png"))
-        keeper_images = [img for img in keeper_images if not img.name.endswith("_card.png")]
+            # Only add keepers images that don't exist in main directory
+            for keeper_img in keeper_images:
+                main_img_path = self.character_images_dir / keeper_img.name
+                if not main_img_path.exists():
+                    character_images.append(keeper_img)
+                    print(f"Using keeper image: {keeper_img.name}")
         
-        print(f"Found {len(keeper_images)} keeper images")
+        # Filter out card images
+        character_images = [img for img in character_images if not img.name.endswith("_card.png")]
         
-        # Create embeddings for each keeper image
-        for image_path in tqdm(keeper_images, desc="Generating Magi v2 embeddings"):
+        return character_images
+    
+    def generate_all_character_embeddings(self, force_regenerate=False):
+        """Generate Magi v2 embeddings for all character images"""
+        character_images = self.find_character_images()
+        
+        if not character_images:
+            print(f"No character images found in {self.character_images_dir}")
+            print("Make sure your character images are in character_output/character_images/")
+            return {}
+        
+        print(f"Found {len(character_images)} character images")
+        
+        # Create embeddings for each character image
+        generated_count = 0
+        skipped_count = 0
+        
+        for image_path in tqdm(character_images, desc="Generating Magi v2 embeddings"):
             character_name = image_path.stem  # Get filename without extension
             
-            # Skip if embedding already exists and is up to date
+            # Skip if embedding already exists and is up to date (unless force regenerate)
             embedding_path = self.embeddings_dir / f"{character_name}.pt"
             
-            if embedding_path.exists() and image_path.stat().st_mtime < embedding_path.stat().st_mtime:
+            if not force_regenerate and embedding_path.exists() and image_path.stat().st_mtime < embedding_path.stat().st_mtime:
                 print(f"Magi v2 embedding for {character_name} already exists and is up to date. Skipping.")
+                skipped_count += 1
                 
                 # Make sure it's in the map
                 if character_name not in self.character_embeddings_map:
@@ -166,7 +200,12 @@ class MagiV2CharacterEncoder:
                         "name": character_name,
                         "image_path": str(image_path),
                         "embedding_path": str(embedding_path),
-                        "embedding_type": "magi_v2_768"
+                        "embedding_type": "magi_v2_768_normalized",
+                        "features": {
+                            "normalized": True,
+                            "magi_v2": True,
+                            "crop_embedding_model": True
+                        }
                     }
                 continue
                 
@@ -176,25 +215,69 @@ class MagiV2CharacterEncoder:
             
             # Save the embedding as PyTorch tensor
             torch.save(embedding, embedding_path)
+            generated_count += 1
             
-            # Add to the embeddings map
+            # Add to the embeddings map with updated metadata
             self.character_embeddings_map[character_name] = {
                 "name": character_name,
                 "image_path": str(image_path),
                 "embedding_path": str(embedding_path),
-                "embedding_type": "magi_v2_768",
-                "embedding_shape": list(embedding.shape)
+                "embedding_type": "magi_v2_768_normalized",
+                "embedding_shape": list(embedding.shape),
+                "features": {
+                    "normalized": True,
+                    "magi_v2": True,
+                    "crop_embedding_model": True,
+                    "embedding_norm": torch.norm(embedding).item()
+                }
             }
         
         # Save the updated embeddings map
         with open(self.embeddings_map_path, 'w') as f:
             json.dump(self.character_embeddings_map, f, indent=2)
             
-        print(f"Generated Magi v2 embeddings for {len(keeper_images)} characters")
-        print(f"Embeddings saved to: {self.embeddings_dir}")
-        print(f"Embeddings map saved to: {self.embeddings_map_path}")
+        print(f"\n📊 EMBEDDING GENERATION SUMMARY:")
+        print(f"  Generated: {generated_count} new embeddings")
+        print(f"  Skipped: {skipped_count} existing embeddings")
+        print(f"  Total: {len(character_images)} character embeddings available")
+        print(f"✅ Embeddings saved to: {self.embeddings_dir}")
+        print(f"🗺️ Embeddings map saved to: {self.embeddings_map_path}")
+        
+        # Verify normalization
+        self.verify_embeddings_normalization()
         
         return self.character_embeddings_map
+    
+    def verify_embeddings_normalization(self):
+        """Verify that all embeddings are properly normalized"""
+        print(f"\n🧪 VERIFYING EMBEDDING NORMALIZATION...")
+        
+        normalized_count = 0
+        problem_count = 0
+        
+        for char_name, info in self.character_embeddings_map.items():
+            try:
+                embedding_path = info["embedding_path"]
+                embedding = torch.load(embedding_path, map_location='cpu')
+                norm = torch.norm(embedding).item()
+                
+                if abs(norm - 1.0) < 0.001:
+                    normalized_count += 1
+                else:
+                    print(f"⚠️ {char_name}: norm = {norm:.4f} (should be 1.0)")
+                    problem_count += 1
+                    
+            except Exception as e:
+                print(f"❌ Error checking {char_name}: {e}")
+                problem_count += 1
+        
+        print(f"✅ Properly normalized: {normalized_count}")
+        print(f"⚠️ Problem embeddings: {problem_count}")
+        
+        if problem_count == 0:
+            print("🎯 All embeddings are properly normalized!")
+        else:
+            print("🚨 Some embeddings need attention - consider regenerating with --force")
     
     def load_character_embedding(self, character_name):
         """Load a character embedding by name"""
@@ -214,10 +297,33 @@ class MagiV2CharacterEncoder:
             # Calculate cosine similarity
             similarity = torch.cosine_similarity(emb1, emb2, dim=0)
             print(f"Similarity between {char1_name} and {char2_name}: {similarity.item():.4f}")
+            
+            # Also show norms for verification
+            norm1 = torch.norm(emb1).item()
+            norm2 = torch.norm(emb2).item()
+            print(f"  {char1_name} norm: {norm1:.4f}")
+            print(f"  {char2_name} norm: {norm2:.4f}")
+            
             return similarity.item()
         else:
             print("Could not compare embeddings - one or both characters not found")
             return None
+    
+    def list_available_characters(self):
+        """List all available characters with embeddings"""
+        if not self.character_embeddings_map:
+            print("No character embeddings found")
+            return
+        
+        print(f"\n📋 AVAILABLE CHARACTER EMBEDDINGS ({len(self.character_embeddings_map)}):")
+        print("=" * 50)
+        
+        for char_name, info in sorted(self.character_embeddings_map.items()):
+            embedding_type = info.get("embedding_type", "unknown")
+            is_normalized = info.get("features", {}).get("normalized", False)
+            norm_status = "✅" if is_normalized else "⚠️"
+            
+            print(f"  {norm_status} {char_name} ({embedding_type})")
 
 def main():
     parser = argparse.ArgumentParser(description="Generate character embeddings using Magi v2")
@@ -227,6 +333,12 @@ def main():
                         help="Directory containing character images and for saving embeddings")
     parser.add_argument("--compare", nargs=2, metavar=('CHAR1', 'CHAR2'),
                         help="Compare embeddings between two characters")
+    parser.add_argument("--list", action="store_true",
+                        help="List all available character embeddings")
+    parser.add_argument("--force", action="store_true",
+                        help="Force regeneration of all embeddings")
+    parser.add_argument("--verify", action="store_true",
+                        help="Verify normalization of existing embeddings")
     
     args = parser.parse_args()
     
@@ -238,8 +350,12 @@ def main():
     if args.compare:
         char1, char2 = args.compare
         encoder.compare_embeddings(char1, char2)
+    elif args.list:
+        encoder.list_available_characters()
+    elif args.verify:
+        encoder.verify_embeddings_normalization()
     else:
-        encoder.generate_all_keeper_embeddings()
+        encoder.generate_all_character_embeddings(force_regenerate=args.force)
 
 if __name__ == "__main__":
     main()
