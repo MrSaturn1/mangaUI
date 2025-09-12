@@ -3,7 +3,8 @@
     "allow": [
       "WebFetch(domain:github.com)",
       "Bash(grep:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "WebSearch"
     ]
   },
   "enableAllProjectMcpServers": false

@@ -8,25 +8,17 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Plus, 
-  Save, 
-  FileDown, 
-  Grid, 
-  Folder, 
   ZoomIn, 
   ZoomOut, 
-  Maximize, 
-  Trash2,
-  SquarePen,
-  Download,
-  Layout,
-  Square,
-  MessageSquare,
-  X,
-  History
+  X
 } from 'lucide-react';
 import ModeStatusBar from './ModeStatusBar';
 import PanelAdjustmentHandles from './PanelAdjustmentHandles';
 import GenerationHistoryModal from './GenerationHistoryModal';
+import Toolbar from './Toolbar';
+import StatusMessage from './StatusMessage';
+import PanelPropertiesPanel from './PanelPropertiesPanel';
+import TemplateModal from './TemplateModal';
 import { API_ENDPOINT, normalizeImagePath } from '../config';
 
 
@@ -872,14 +864,22 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     const panel = panels[panelIndex];
     
-    // Calculate the effective scale based on mode
-    const effectiveScale = isPanelFocusMode && panel.id === focusedPanelId ? focusScale : scale;
+    // Calculate panel position based on focus mode
+    const panelX = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.x;
+    const panelY = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.y;
     
-    // Calculate actual dimensions (accounting for scale)
-    const relativeX = node.x() / (panel.width * effectiveScale);
-    const relativeY = node.y() / (panel.height * effectiveScale);
-    const relativeWidth = (node.width() * node.scaleX()) / (panel.width * effectiveScale);
-    const relativeHeight = (node.height() * node.scaleY()) / (panel.height * effectiveScale);
+    // Convert node position back to relative coordinates
+    // Account for panel offset and current scale
+    const absoluteX = node.x();
+    const absoluteY = node.y();
+    const absoluteWidth = node.width() * node.scaleX();
+    const absoluteHeight = node.height() * node.scaleY();
+    
+    // Convert from screen coordinates to panel-relative coordinates (0-1)
+    const relativeX = (absoluteX - panelX * currentScale) / (panel.width * currentScale);
+    const relativeY = (absoluteY - panelY * currentScale) / (panel.height * currentScale);
+    const relativeWidth = absoluteWidth / (panel.width * currentScale);
+    const relativeHeight = absoluteHeight / (panel.height * currentScale);
     
     // Ensure values stay within 0-1 range
     const x = Math.max(0, Math.min(1, relativeX));
@@ -926,16 +926,21 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     const panel = panels[panelIndex];
     
-    // Calculate the effective scale based on mode
-    const effectiveScale = isPanelFocusMode && panel.id === focusedPanelId ? focusScale : scale;
+    // Calculate panel position based on focus mode
+    const panelX = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.x;
+    const panelY = isPanelFocusMode && panel.id === focusedPanelId ? 0 : panel.y;
     
-    // Calculate actual dimensions (accounting for scale)
-    const relativeX = node.x() / (panel.width * effectiveScale);
-    const relativeY = node.y() / (panel.height * effectiveScale);
+    // Convert from screen coordinates to panel-relative coordinates (0-1)
+    const relativeX = (node.x() - panelX * currentScale) / (panel.width * currentScale);
+    const relativeY = (node.y() - panelY * currentScale) / (panel.height * currentScale);
     
-    // Ensure values stay within 0-1 range
-    const x = Math.max(0, Math.min(1 - node.width() / (panel.width * effectiveScale), relativeX));
-    const y = Math.max(0, Math.min(1 - node.height() / (panel.height * effectiveScale), relativeY));
+    // Get current box dimensions for boundary checking
+    const currentBox = type === 'character' ? panel.characterBoxes?.[index] : panel.textBoxes?.[index];
+    if (!currentBox) return;
+    
+    // Ensure values stay within 0-1 range, accounting for box dimensions
+    const x = Math.max(0, Math.min(1 - currentBox.width, relativeX));
+    const y = Math.max(0, Math.min(1 - currentBox.height, relativeY));
     
     // Update the box
     const updatedPanels = [...panels];
@@ -1971,71 +1976,6 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setShowTemplateDialog(false);
   };
 
-  // Add the status message component to render
-  const renderStatusMessage = () => {
-    if (!showStatus) return null;
-    
-    const bgColors = {
-      success: 'bg-green-100 border-green-500',
-      error: 'bg-red-100 border-red-500',
-      info: 'bg-blue-100 border-blue-500',
-      loading: 'bg-indigo-100 border-indigo-500'
-    };
-    
-    const textColors = {
-      success: 'text-green-700',
-      error: 'text-red-700',
-      info: 'text-blue-700',
-      loading: 'text-indigo-700'
-    };
-    
-    const icons = {
-      success: (
-        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-        </svg>
-      ),
-      error: (
-        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-        </svg>
-      ),
-      info: (
-        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zm-1 7a1 1 0 002 0v-3a1 1 0 00-2 0v3z" clipRule="evenodd" />
-        </svg>
-      ),
-      loading: (
-        <div className="animate-spin w-5 h-5 mr-2 border-2 border-dashed rounded-full border-current"></div>
-      )
-    };
-    
-    return (
-      <div className="fixed bottom-4 right-4 max-w-sm z-50">
-        <div className={`p-3 rounded-lg shadow-md border-l-4 ${bgColors[statusType]}`}>
-          <div className="flex items-center">
-            <div className={textColors[statusType]}>
-              {icons[statusType]}
-            </div>
-            <div className={`ml-3 ${textColors[statusType]}`}>
-              <p className="text-sm font-medium">{statusMessage}</p>
-            </div>
-            {statusType !== 'loading' && (
-              <button 
-                onClick={clearStatusMessage}
-                className="ml-auto text-gray-400 hover:text-gray-500"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
 
   const handleBackgroundClick = (e: KonvaEventObject<MouseEvent>) => {
     // If clicking directly on the stage (background), deselect current panel
@@ -2066,89 +2006,17 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Left Sidebar - Vertical Toolbar */}
-      <div className="w-14 bg-gray-100 shadow-md flex flex-col items-center py-4 space-y-4">
-        <div className="relative group">
-          <button
-            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-            onClick={handleAddPanel}
-          >
-            <Plus size={20} />
-          </button>
-          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-            Add Panel
-            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
-          </div>
-        </div>
-
-        <div className="relative group">
-          <button
-            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
-            onClick={handleDeletePanel}
-            disabled={!selectedPanelId}
-          >
-            <Trash2 size={20} />
-          </button>
-          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-            Delete Panel
-            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
-          </div>
-        </div>
-
-        <div className="relative group">
-          <button
-            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-            onClick={() => setShowTemplateDialog(true)}
-          >
-            <Layout size={20} />
-          </button>
-          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-            Page Templates
-            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
-          </div>
-        </div>
-
-        <div className="relative group">
-          <button
-            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-            onClick={onShowExport}
-          >
-            <FileDown size={20} />
-          </button>
-          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-            Export Manga
-            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
-          </div>
-        </div>
-
-        {/* Save Project */}
-        <div className="relative group">
-          <button
-            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
-            onClick={handleSaveProject}
-            disabled={isSaving || !hasUnsavedChanges}
-          >
-            <Save size={20} />
-          </button>
-          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-            Save Project
-            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
-          </div>
-        </div>
-
-        {/* Project Manager button */}
-        <div className="relative group">
-          <button
-            onClick={onShowProjectManager}
-            className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-          >
-            <Folder size={20} />
-          </button>
-          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-            Project Manager
-            <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
-          </div>
-        </div>
-      </div>
+      <Toolbar 
+        selectedPanelId={selectedPanelId}
+        isSaving={isSaving}
+        hasUnsavedChanges={hasUnsavedChanges}
+        onAddPanel={handleAddPanel}
+        onDeletePanel={handleDeletePanel}
+        onShowTemplateDialog={() => setShowTemplateDialog(true)}
+        onSaveProject={handleSaveProject}
+        onShowProjectManager={onShowProjectManager}
+        onShowExport={onShowExport}
+      />
   
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -2593,388 +2461,68 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
           </div>
   
           {/* Panel Editor - Right Sidebar */}
-          <div className="w-[32rem] bg-white border-l border-gray-200 overflow-y-auto overflow-x-hidden flex-shrink-0" style={{ maxHeight: '100vh - 128px' }}>
-            {selectedPanel ? (
-              <div className="p-4 max-w-full">
-                <h2 className="text-2xl font-bold mb-4">Panel Editor</h2>
-                {!showBoxes && (
-                  <div className="px-3 py-1 mb-4 bg-indigo-100 text-yellow-800 text-sm rounded-md">
-                    Character and Text Boxes Hidden - Toggle "Show Boxes" to edit positioning
-                  </div>
-                )}
-                
-                <div className="space-y-6 max-w-full">
-                  {/* Character Section */}
-                  <div className="pb-4 border-b border-gray-200">
-                    <div className="flex justify-between items-center mb-2">
-                      <h3 className="text-lg font-semibold">Characters</h3>
-                      <select
-                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        value=""
-                        onChange={(e) => {
-                          const selectedChar = characters.find(c => c.name === e.target.value);
-                          if (selectedChar) {
-                            handleAddCharacter(selectedChar);
-                          }
-                          // Reset the select
-                          e.target.value = "";
-                        }}
-                      >
-                        <option value="">Add Character...</option>
-                        {characters.map(char => (
-                          <option key={char.name} value={char.name}>{char.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    
-                    {/* Character Boxes - now the single source of truth */}
-                    {selectedPanel.characterBoxes && selectedPanel.characterBoxes.length > 0 ? (
-                      <div className="space-y-2">
-                        <h4 className="font-medium text-sm mb-2">Character Placement:</h4>
-                        <div className="max-h-60 overflow-y-auto space-y-2">
-                          {selectedPanel.characterBoxes.map((box, idx) => {
-                            const isSelected = selectedBoxType === 'character' && selectedBoxIndex === idx;
-                            
-                            return (
-                              <div 
-                                key={`char-box-${idx}`}
-                                className={`flex items-center text-sm p-3 rounded-md border cursor-pointer transition-colors ${
-                                  isSelected
-                                    ? 'border-indigo-500 bg-indigo-50'
-                                    : 'border-gray-200 hover:bg-gray-50'
-                                }`}
-                                onClick={() => {
-                                  handleBoxSelect('character', idx);
-                                  setPanelMode('adjust');
-                                }}
-                              >
-                                <div 
-                                  className="w-4 h-4 mr-3 rounded" 
-                                  style={{backgroundColor: box.color}}
-                                ></div>
-                                <div className="flex-1">
-                                  <div className="font-medium">{box.character}</div>
-                                  <div className="text-xs text-gray-500">
-                                    Position: ({Math.round(box.x * 100)}%, {Math.round(box.y * 100)}%) • 
-                                    Size: {Math.round(box.width * 100)}% × {Math.round(box.height * 100)}%
-                                  </div>
-                                </div>
-                                {isSelected && (
-                                  <span className="ml-2 px-2 py-1 text-xs bg-indigo-200 text-indigo-800 rounded">
-                                    Selected
-                                  </span>
-                                )}
-                                <button
-                                  className="ml-2 px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteBox('character', idx);
-                                  }}
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-gray-500 italic text-center py-4">
-                        No characters added. Select a character from the dropdown to add them to this panel.
-                      </div>
-                    )}
-                    
-                    {panelMode === 'character-box' && (
-                      <div className="mt-3 p-3 bg-indigo-50 rounded-md border border-indigo-200">
-                        <p className="text-sm font-medium mb-2">Drawing Character Box for: <span className="font-bold">{activeCharacter}</span></p>
-                        <p className="text-xs text-gray-600">Click and drag on the panel to draw a placement box for this character.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Dialogues Section with Text Box Drawing capability */}
-                  <div className="pb-4 border-b border-gray-200">
-                    <div className="flex justify-between items-center mb-2">
-                      <h3 className="text-lg font-semibold">Dialogue</h3>
-                      <div className="flex space-x-2">
-                        <button
-                          className="px-3 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                          onClick={handleAddDialogue}
-                        >
-                          Add Dialogue
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {panelMode === 'text-box' && (
-                      <div className="mt-3 p-3 bg-indigo-50 rounded-md border border-indigo-200">
-                        <p className="text-sm font-medium mb-2">Drawing Text Box</p>
-                        <p className="text-xs text-gray-600">Click and drag on the panel to draw a placement box for dialogue text.</p>
-                      </div>
-                    )}
-                    
-                    {/* Combined Text Boxes and Dialogues */}
-                    <div className="space-y-4 mt-4">
-                      {selectedPanel.dialogues.map((dialogue, index) => {
-                        const textBox = selectedPanel.textBoxes?.[index];
-                        const isSelected = selectedBoxType === 'text' && selectedBoxIndex === index;
-                        
-                        return (
-                          <div 
-                            key={`dialogue-${index}`} 
-                            className={`p-3 rounded-md border transition-colors cursor-pointer ${
-                              isSelected 
-                                ? 'border-indigo-500 bg-indigo-50' 
-                                : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
-                            }`}
-                            onClick={() => {
-                              handleBoxSelect('text', index);
-                              setPanelMode('adjust');
-                            }}
-                          >
-                            <div className="flex justify-between items-start mb-2">
-                              <div className="flex items-center">
-                                <span className="text-sm font-medium text-gray-700 mr-2">
-                                  Text Box {index + 1}
-                                </span>
-                                {textBox && (
-                                  <span className="text-xs text-gray-500">
-                                    ({Math.round(textBox.x * 100)}%, {Math.round(textBox.y * 100)}%)
-                                  </span>
-                                )}
-                                {isSelected && (
-                                  <span className="ml-2 px-2 py-1 text-xs bg-indigo-200 text-indigo-800 rounded">
-                                    Selected
-                                  </span>
-                                )}
-                              </div>
-                              <button
-                                className="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteBox('text', index);
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                            
-                            <div className="mb-2">
-                              <label className="block text-sm font-medium text-black mb-1">Text</label>
-                              <textarea
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                                value={dialogue.text}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  handleUpdateDialogue(index, 'text', e.target.value);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                placeholder="What they say..."
-                                rows={2}
-                              />
-                            </div>
-                            
-                            {!textBox && (
-                              <div className="text-xs text-red-600 mt-1">
-                                ⚠️ Missing text box - click "Draw Text Box" to add positioning
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      
-                      {selectedPanel.dialogues.length === 0 && (
-                        <div className="text-gray-500 italic text-center py-4">
-                          No dialogue added. Click "Add Dialogue" to get started.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Panel Settings */}
-                  <div className="pb-2 border-b border-gray-200">
-                    <div className="flex flex-wrap mb-4 max-w-xl">
-                      <div className="pr-4">
-                        <label className="block text-sm font-medium text-black mb-1">Panel Index</label>
-                        <div className="w-20 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700">
-                          {selectedPanel.panelIndex || 0}
-                        </div>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-black mb-1">Seed</label>
-                        <div className="flex space-x-1">
-                          <input
-                            type="number"
-                            className="w-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                            value={selectedPanel.seed || 0}
-                            onChange={(e) => {
-                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                              if (panelIndex === -1) return;
-                              
-                              const updatedPanels = [...panels];
-                              updatedPanels[panelIndex].seed = parseInt(e.target.value) || 0;
-                              
-                              updatePanelsForCurrentPage(updatedPanels);
-                            }}
-                          />
-                          <button
-                            className="px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                            onClick={() => {
-                              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
-                              if (panelIndex === -1) return;
-                              
-                              const updatedPanels = [...panels];
-                              updatedPanels[panelIndex].seed = Math.floor(Math.random() * 1000000);
-                              
-                              updatePanelsForCurrentPage(updatedPanels);
-                            }}
-                          >
-                            Random
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-black mb-1">Prompt</label>
-                      <textarea
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        value={selectedPanel.prompt || ''}
-                        onChange={(e) => handleUpdatePrompt(e.target.value)}
-                        placeholder="Deep in the undergrowth, ferns shake and a RAT emerges..."
-                        rows={3}
-                      />
-                      <div className="mb-4">
-                        <button
-                          className="w-full flex items-center justify-between p-2 bg-gray-50 hover:bg-gray-100 border border-gray-300 rounded-md transition-colors"
-                          onClick={() => setShowNegativePrompt(!showNegativePrompt)}
-                        >
-                          <span className="text-sm font-medium text-black">Negative Prompt</span>
-                          <div className="flex items-center">
-                            {!showNegativePrompt && (
-                              <span className="text-xs text-gray-500 mr-2">
-                                Specify what you want to avoid in the generated image
-                              </span>
-                            )}
-                            <svg 
-                              className={`w-4 h-4 transition-transform ${showNegativePrompt ? 'rotate-180' : ''}`}
-                              fill="none" 
-                              viewBox="0 0 24 24" 
-                              stroke="currentColor"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </div>
-                        </button>
-                        
-                        {showNegativePrompt && (
-                          <div className="mt-2 space-y-2">
-                            <textarea
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                              value={selectedPanel.negativePrompt || DEFAULT_NEGATIVE_PROMPT}
-                              onChange={(e) => handleUpdateNegativePrompt(e.target.value)}
-                              placeholder="Things you don't want in the image..."
-                              rows={4}
-                            />
-                            <button
-                              className="px-3 py-2 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition-colors"
-                              onClick={() => handleUpdateNegativePrompt(DEFAULT_NEGATIVE_PROMPT)}
-                            >
-                              Reset to Default
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Generate Panel Button */}
-                  <button
-                    className="w-full px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400"
-                    onClick={handleGeneratePanel}
-                    disabled={selectedPanel.isGenerating}
-                  >
-                    {selectedPanel.isGenerating 
-                      ? 'Generating...' 
-                      : selectedPanel.imageData 
-                        ? 'Regenerate Panel' 
-                        : 'Generate Panel'}
-                  </button>
-                  
-                  {/* Panel History Button */}
-                  {selectedPanelId && panelsWithHistory.has(panels.findIndex(p => p.id === selectedPanelId)) && (
-                    <button
-                      className="w-full mt-3 px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 flex items-center justify-center"
-                      onClick={() => handleShowPanelHistory(selectedPanelId)}
-                    >
-                      <History size={16} className="mr-2" />
-                      View Panel History
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-64 text-black p-4">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <p>Select a panel to edit</p>
-              </div>
-            )}
-          </div>
+          <PanelPropertiesPanel 
+            selectedPanel={selectedPanel}
+            characters={characters}
+            panels={panels}
+            selectedPanelId={selectedPanelId}
+            selectedBoxType={selectedBoxType}
+            selectedBoxIndex={selectedBoxIndex}
+            panelMode={panelMode}
+            activeCharacter={activeCharacter}
+            showBoxes={showBoxes}
+            showNegativePrompt={showNegativePrompt}
+            panelsWithHistory={panelsWithHistory}
+            DEFAULT_NEGATIVE_PROMPT={DEFAULT_NEGATIVE_PROMPT}
+            onAddCharacter={handleAddCharacter}
+            onBoxSelect={handleBoxSelect}
+            onDeleteBox={handleDeleteBox}
+            onSetPanelMode={setPanelMode}
+            onAddDialogue={handleAddDialogue}
+            onUpdateDialogue={handleUpdateDialogue}
+            onUpdateSeed={(seed) => {
+              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+              if (panelIndex === -1) return;
+              const updatedPanels = [...panels];
+              updatedPanels[panelIndex].seed = seed;
+              updatePanelsForCurrentPage(updatedPanels);
+            }}
+            onRandomizeSeed={() => {
+              const panelIndex = panels.findIndex(p => p.id === selectedPanelId);
+              if (panelIndex === -1) return;
+              const updatedPanels = [...panels];
+              updatedPanels[panelIndex].seed = Math.floor(Math.random() * 1000000);
+              updatePanelsForCurrentPage(updatedPanels);
+            }}
+            onUpdatePrompt={handleUpdatePrompt}
+            onUpdateNegativePrompt={handleUpdateNegativePrompt}
+            onToggleNegativePrompt={() => setShowNegativePrompt(!showNegativePrompt)}
+            onGeneratePanel={handleGeneratePanel}
+            onShowPanelHistory={handleShowPanelHistory}
+          />
         </div>
       </div>
 
-      {renderStatusMessage()}
+      <StatusMessage 
+        show={showStatus}
+        message={statusMessage}
+        type={statusType}
+        onClose={() => {
+          setShowStatus(false);
+          if (statusTimeout) {
+            clearTimeout(statusTimeout);
+            setStatusTimeout(null);
+          }
+        }}
+      />
   
       {/* Template Dialog Modal */}
-      {showTemplateDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl p-6 max-h-[90vh] overflow-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Choose a Page Template</h3>
-              <button
-                onClick={() => setShowTemplateDialog(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {pageTemplates.map(template => (
-                <div 
-                  key={template.id}
-                  className="border rounded-lg p-4 cursor-pointer hover:bg-indigo-50"
-                  onClick={() => applyPageTemplate(template.id)}
-                >
-                  <h4 className="font-bold mb-1">{template.name}</h4>
-                  <p className="text-sm text-gray-600 mb-2">{template.description}</p>
-                  <div className="bg-gray-100 border aspect-[2/3] p-1">
-                    <svg viewBox={`0 0 ${pageSize.width} ${pageSize.height}`} className="w-full h-full">
-                      {template.layoutFunction(pageSize.width, pageSize.height, 20).map((panel, i) => (
-                        <rect
-                          key={i}
-                          x={panel.x}
-                          y={panel.y}
-                          width={panel.width}
-                          height={panel.height}
-                          fill="white"
-                          stroke="black"
-                          strokeWidth="2"
-                        />
-                      ))}
-                    </svg>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <TemplateModal 
+        isOpen={showTemplateDialog}
+        onClose={() => setShowTemplateDialog(false)}
+        onApplyTemplate={applyPageTemplate}
+        pageSize={pageSize}
+      />
       
       {/* Panel History Modal */}
       <GenerationHistoryModal

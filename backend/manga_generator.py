@@ -412,6 +412,8 @@ class MangaGenerator:
 
         # FIX THE ref_embedding_proj LAYER
         self.fix_ref_embedding_proj()
+
+        # self.load_diffsensei_ip_weights()
         
         # Initialize the upscaler
         self.init_upscaler()
@@ -548,6 +550,45 @@ class MangaGenerator:
                 proj_layer.bias.data.zero_()
         
         print(f"  ✅ Created 4 identity-like blocks of size {block_size}")
+
+    def load_diffsensei_ip_weights(self):
+        """Load DiffSensei IP adapter weights for better character consistency"""
+        weights_path = Path("adapted_ip_weights/ip_attention_weights.pth")
+        
+        if weights_path.exists():
+            print("🔗 Loading DiffSensei IP adapter weights...")
+            try:
+                adapted_weights = torch.load(weights_path, map_location='cpu')
+                
+                applied_count = 0
+                for block in self.pipe.transformer.transformer_blocks:
+                    if hasattr(block, 'ip_attn'):
+                        for weight_name, weight_tensor in adapted_weights.items():
+                            parts = weight_name.split('.')
+                            target = block.ip_attn
+                            
+                            for part in parts[1:-1]:
+                                if part.isdigit():
+                                    target = target[int(part)]
+                                else:
+                                    target = getattr(target, part)
+                            
+                            param_name = parts[-1]
+                            if hasattr(target, param_name):
+                                current_param = getattr(target, param_name)
+                                if current_param.shape == weight_tensor.shape:
+                                    # Add additional 0.1x scaling (so 0.1 * 0.1 = 0.01x total)
+                                    scaled_weight = weight_tensor * 0.1
+                                    current_param.data.copy_(scaled_weight.to(current_param.device))
+                                    applied_count += 1
+                
+                print(f"✅ Applied {applied_count} DiffSensei weights (0.01x total scaling)")
+                print("✨ Character consistency should improve!")
+                
+            except Exception as e:
+                print(f"⚠️ Error loading DiffSensei weights: {e}")
+        else:
+            print("⚠️ DiffSensei weights not found - using default IP attention")
     
     def init_pipeline(self):
         """Initialize the Drawatoon pipeline"""
@@ -619,7 +660,16 @@ class MangaGenerator:
                 if reference_embeddings:
                     print(f"  reference_embeddings shapes: {[[emb.shape if hasattr(emb, 'shape') else 'N/A' for emb in batch] for batch in reference_embeddings]}")
                 try:
+                    # Add debugging to see what IP adapter produces
+                    print(f"🔍 CALLING IP ADAPTER:")
+                    print(f"  Input embedding norms: {[torch.norm(emb).item() for batch in reference_embeddings for emb in batch if emb is not None]}")
+                    print(f"  Input embedding sample: {[emb[:5].tolist() for batch in reference_embeddings for emb in batch if emb is not None]}")
+                    
                     ip_hidden_states, ip_attention_mask = self.ip_adapter(text_bboxes, character_bboxes, reference_embeddings, cfg_on_10_percent)
+                    
+                    print(f"  IP adapter output shape: {ip_hidden_states.shape}")
+                    print(f"  IP adapter output norm: {torch.norm(ip_hidden_states).item():.4f}")
+                    print(f"  IP adapter output range: [{ip_hidden_states.min():.4f}, {ip_hidden_states.max():.4f}]")
                     
                     # Handle CFG: if batch_size > 1, duplicate IP adapter outputs
                     if batch_size > ip_hidden_states.shape[0]:
@@ -743,10 +793,52 @@ class MangaGenerator:
         # Replace the transformer's forward method with our modified version
         self.pipe.transformer.forward = modified_forward.__get__(self.pipe.transformer, self.pipe.transformer.__class__)
         
-        # Use MPS for Mac M-series chips
+        # Use MPS for Mac M-series chips with meta tensor handling
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         print(f"Using device: {self.device}")
-        self.pipe = self.pipe.to(self.device)
+
+        # MPS-safe device transfer
+        if str(self.device) == "mps":
+            try:
+                # First try normal .to()
+                self.pipe = self.pipe.to(self.device)
+            except NotImplementedError as e:
+                if "meta tensor" in str(e):
+                    print("Handling meta tensor issue for MPS device...")
+                    try:
+                        # Apply to_empty() to the transformer specifically
+                        print("Applying to_empty() to transformer...")
+                        self.pipe.transformer = self.pipe.transformer.to_empty(device=self.device)
+                        
+                        # Move other components normally
+                        print("Moving other pipeline components to MPS...")
+                        if hasattr(self.pipe, 'vae'):
+                            self.pipe.vae = self.pipe.vae.to(self.device)
+                        if hasattr(self.pipe, 'text_encoder'):
+                            self.pipe.text_encoder = self.pipe.text_encoder.to(self.device)
+                        if hasattr(self.pipe, 'tokenizer'):
+                            # Tokenizer doesn't need device movement
+                            pass
+                        if hasattr(self.pipe, 'scheduler'):
+                            # Scheduler doesn't need device movement  
+                            pass
+                        
+                        print("Successfully moved model to MPS using to_empty() on transformer")
+                        
+                    except Exception as fallback_error:
+                        print(f"to_empty() approach failed: {fallback_error}")
+                        # Last resort: reload model with float32 for CPU compatibility
+                        print("Reloading model with float32 for CPU fallback...")
+                        self.pipe = PixArtSigmaPipeline.from_pretrained(
+                            self.model_path,
+                            torch_dtype=torch.float32  # Use float32 for CPU compatibility
+                        )
+                        self.device = "cpu"
+                        self.pipe = self.pipe.to(self.device)
+                else:
+                    raise e
+        else:
+            self.pipe = self.pipe.to(self.device)
         
         # Enable attention slicing for memory efficiency
         self.pipe.enable_attention_slicing()
@@ -900,9 +992,9 @@ class MangaGenerator:
         
         # Determine whether to include character descriptions
         if use_character_descriptions is None:
-            # REVERT TO DESCRIPTIONS-FIRST APPROACH: Use descriptions when available, skip embeddings
-            # This avoids interference between text and visual channels
-            use_character_descriptions = False
+            # REVERT TO DESCRIPTIONS-FIRST APPROACH: Use descriptions when available, with random embeddings for spatial positioning
+            # This combines detailed text descriptions with random embeddings for layout
+            use_character_descriptions = True
         
         # Add characters with enhanced descriptions
         if use_character_descriptions:
@@ -1406,16 +1498,29 @@ class MangaGenerator:
                     if emb is not None:
                         if isinstance(emb, np.ndarray):
                             # Convert numpy array to PyTorch tensor
-                            emb_tensor = torch.from_numpy(emb).to(
-                                device=self.device,
-                                dtype=torch.float16  # Match model dtype
-                            )
+                            emb_tensor = torch.from_numpy(emb).to(device='cpu', dtype=torch.float32)
+                            
+                            # For MPS: do high-precision operations on CPU, then convert
+                            if self.device == 'mps':
+                                emb_tensor = F.normalize(emb_tensor, p=2, dim=0)  # Normalize on CPU
+                                emb_tensor = emb_tensor.to(device=self.device, dtype=torch.float16)
+                            else:
+                                emb_tensor = emb_tensor.to(device=self.device, dtype=torch.float16)
+                                emb_tensor = F.normalize(emb_tensor, p=2, dim=0)  # Normalize on device
+                            
                             # Flatten to remove extra dimensions - should be [768] not [1, 768]
                             emb_tensor = emb_tensor.flatten()
                             converted_embeddings.append(emb_tensor)
                         else:
-                            # Ensure existing tensors have correct device and dtype
-                            emb_tensor = emb.to(device=self.device, dtype=torch.float16)
+                            # For existing tensors, apply same MPS-aware processing
+                            if self.device == 'mps':
+                                emb_tensor = emb.to(device='cpu', dtype=torch.float32)
+                                emb_tensor = F.normalize(emb_tensor, p=2, dim=0)
+                                emb_tensor = emb_tensor.to(device=self.device, dtype=torch.float16)
+                            else:
+                                emb_tensor = emb.to(device=self.device, dtype=torch.float16)
+                                emb_tensor = F.normalize(emb_tensor, p=2, dim=0)
+                            
                             # Flatten to remove extra dimensions - should be [768] not [1, 768]
                             emb_tensor = emb_tensor.flatten()
                             converted_embeddings.append(emb_tensor)
@@ -1443,6 +1548,16 @@ class MangaGenerator:
                 print(f"  reference_embeddings devices: {[emb.device if hasattr(emb, 'device') else 'N/A' for emb in reference_embeddings]}")
                 print(f"  reference_embeddings shapes: {[emb.shape if hasattr(emb, 'shape') else 'N/A' for emb in reference_embeddings]}")
                 print(f"  reference_embeddings dtypes: {[emb.dtype if hasattr(emb, 'dtype') else 'N/A' for emb in reference_embeddings]}")
+                
+                # MPS-specific embedding verification
+                if self.device == 'mps':
+                    print(f"🔍 MPS EMBEDDING VERIFICATION:")
+                    for i, emb in enumerate(reference_embeddings):
+                        if emb is not None:
+                            norm = torch.norm(emb).item()
+                            print(f"    Embedding {i}: norm={norm:.6f}, dtype={emb.dtype}, device={emb.device}")
+                            if abs(norm - 1.0) > 0.01:
+                                print(f"    ⚠️ Poor normalization detected!")
                 
                 # PROOF: Show exactly which character boxes are linked to which embeddings
                 print(f"🔗 CHARACTER EMBEDDING VERIFICATION:")

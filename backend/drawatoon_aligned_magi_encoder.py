@@ -119,7 +119,12 @@ class DrawatoonAlignedMagiEncoder:
                     embedding = torch.randn(768)
             
             # CRITICAL: Proper normalization (unit vector)
-            embedding = F.normalize(embedding, p=2, dim=0)
+            if self.device == 'mps':
+                # For MPS: normalize in float32 on CPU for precision, then save
+                embedding = embedding.cpu().float()
+                embedding = F.normalize(embedding, p=2, dim=0)
+            else:
+                embedding = F.normalize(embedding, p=2, dim=0)
             
             # Verify normalization
             norm = torch.norm(embedding).item()

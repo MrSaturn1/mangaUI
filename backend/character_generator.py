@@ -199,7 +199,42 @@ class CharacterGenerator:
         # Use MPS for Mac M-series chips
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         print(f"Using device: {self.device}")
-        self.pipe = self.pipe.to(self.device)
+        # MPS-safe device transfer
+        if str(self.device) == "mps":
+            try:
+                # First try normal .to()
+                self.pipe = self.pipe.to(self.device)
+            except NotImplementedError as e:
+                if "meta tensor" in str(e):
+                    print("Handling meta tensor issue for MPS device...")
+                    try:
+                        # Apply to_empty() to the transformer specifically
+                        print("Applying to_empty() to transformer...")
+                        self.pipe.transformer = self.pipe.transformer.to_empty(device=self.device)
+                        
+                        # Move other components normally
+                        print("Moving other pipeline components to MPS...")
+                        if hasattr(self.pipe, 'vae'):
+                            self.pipe.vae = self.pipe.vae.to(self.device)
+                        if hasattr(self.pipe, 'text_encoder'):
+                            self.pipe.text_encoder = self.pipe.text_encoder.to(self.device)
+                        
+                        print("Successfully moved model to MPS using to_empty() on transformer")
+                        
+                    except Exception as fallback_error:
+                        print(f"to_empty() approach failed: {fallback_error}")
+                        # Last resort: reload model with float32 for CPU compatibility
+                        print("Reloading model with float32 for CPU fallback...")
+                        self.pipe = PixArtSigmaPipeline.from_pretrained(
+                            self.model_path,
+                            torch_dtype=torch.float32  # Use float32 for CPU compatibility
+                        )
+                        self.device = "cpu"
+                        self.pipe = self.pipe.to(self.device)
+                else:
+                    raise e
+        else:
+            self.pipe = self.pipe.to(self.device)
         
         # Enable attention slicing for memory efficiency
         self.pipe.enable_attention_slicing()
