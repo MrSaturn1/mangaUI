@@ -399,7 +399,7 @@ export default function Home() {
               {/* Project manager overlay */}
               {showProjectManager && (
                 <div 
-                  className="absolute inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4"
+                  className="absolute inset-0 z-50 bg-white bg-opacity-75 flex items-center justify-center p-4"
                   onClick={(e) => {
                     if (e.target === e.currentTarget) {
                       setShowProjectManager(false);

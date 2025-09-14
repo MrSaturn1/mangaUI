@@ -78,32 +78,32 @@ const Toolbar: React.FC<ToolbarProps> = ({
       {/* Undo */}
       <div className="relative group">
         <button
-          className="p-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:bg-gray-300 disabled:hover:bg-gray-300"
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Ctrl/Cmd + Z)"
         >
           <Undo size={20} />
         </button>
-        <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-gray-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+        <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
           Undo (Ctrl/Cmd + Z)
-          <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-600"></div>
+          <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
         </div>
       </div>
 
       {/* Redo */}
       <div className="relative group">
         <button
-          className="p-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:bg-gray-300 disabled:hover:bg-gray-300"
+          className="p-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:hover:bg-gray-400"
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Ctrl/Cmd + Shift + Z)"
         >
           <Redo size={20} />
         </button>
-        <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-gray-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+        <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white text-sm px-3 py-2 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
           Redo (Ctrl/Cmd + Shift + Z)
-          <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-600"></div>
+          <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-indigo-600"></div>
         </div>
       </div>
 
