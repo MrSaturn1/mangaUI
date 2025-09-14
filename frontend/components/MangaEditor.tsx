@@ -19,6 +19,8 @@ import Toolbar from './Toolbar';
 import StatusMessage from './StatusMessage';
 import PanelPropertiesPanel from './PanelPropertiesPanel';
 import TemplateModal from './TemplateModal';
+import TemplateWarningModal from './TemplateWarningModal';
+import { useUndoRedo } from '../hooks/useUndoRedo';
 import { API_ENDPOINT, normalizeImagePath } from '../config';
 
 
@@ -141,7 +143,19 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   // const [pages, setPages] = useState([{ id: 'page-1', panels: [] as Panel[] }]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [showTemplateDialog, setShowTemplateDialog] = useState<boolean>(false);
+  const [showTemplateWarning, setShowTemplateWarning] = useState<boolean>(false);
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  
+  // Undo/Redo system
+  const {
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    pushAction,
+    clearHistory
+  } = useUndoRedo(localPages, 50);
   
   // Panels state
   const panels: Panel[] = localPages[currentPageIndex]?.panels || [];
@@ -355,7 +369,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   useEffect(() => {
     // Auto-save every 1 minute if there are unsaved changes
     const autoSaveInterval = setInterval(() => {
-      if (hasUnsavedChanges && currentProject) {
+      if (hasUnsavedChanges && currentProject && !isSaving) {
         console.log('Auto-saving project...');
         saveToProject();
         setHasUnsavedChanges(false);
@@ -381,6 +395,39 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isPanelFocusMode]);
+
+  // Add undo/redo keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if we're in an input field - don't trigger undo/redo there
+      const activeElement = document.activeElement;
+      const isInputField = activeElement && (
+        activeElement.tagName === 'INPUT' || 
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.contentEditable === 'true'
+      );
+      
+      if (isInputField) return;
+      
+      // Cmd/Ctrl + Z for undo
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      
+      // Cmd/Ctrl + Shift + Z or Cmd/Ctrl + Y for redo
+      if (((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) ||
+          ((e.metaKey || e.ctrlKey) && e.key === 'y')) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [undo, redo]);
 
   // Add beforeunload handler to warn about unsaved changes
   useEffect(() => {
@@ -457,8 +504,40 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setSelectedBoxIndex(null);
   };
 
-  const updatePanelsForCurrentPage = (newPanels: Panel[]) => {
-    const updatedPages = [...localPages];
+  // Enhanced update function that captures undo actions
+  const updatePanelsForCurrentPage = (newPanels: Panel[], actionDescription?: string) => {
+    const currentPages = [...localPages];
+    const oldPanels = currentPages[currentPageIndex]?.panels || [];
+    
+    // Only create undo action if there's an actual change
+    if (JSON.stringify(oldPanels) !== JSON.stringify(newPanels) && actionDescription) {
+      const oldPagesState = [...currentPages];
+      
+      pushAction({
+        type: 'UPDATE_PANELS',
+        description: actionDescription,
+        undo: () => {
+          setLocalPages(oldPagesState);
+        },
+        redo: () => {
+          const updatedPages = [...currentPages];
+          // Ensure the page exists
+          if (!updatedPages[currentPageIndex]) {
+            updatedPages[currentPageIndex] = { id: `page-${currentPageIndex + 1}`, panels: [] };
+          }
+          
+          updatedPages[currentPageIndex] = {
+            ...updatedPages[currentPageIndex],
+            panels: newPanels
+          };
+          
+          setLocalPages(updatedPages);
+        }
+      });
+    }
+    
+    // Apply the change
+    const updatedPages = [...currentPages];
     
     // Ensure the page exists
     if (!updatedPages[currentPageIndex]) {
@@ -605,7 +684,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       negativePrompt: DEFAULT_NEGATIVE_PROMPT
     };
     
-    updatePanelsForCurrentPage([...panels, newPanel]);
+    updatePanelsForCurrentPage([...panels, newPanel], 'Add panel');
     setSelectedPanelId(newPanel.id);
   };
   
@@ -613,7 +692,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
   const handleDeletePanel = () => {
     if (!selectedPanelId) return;
     
-    updatePanelsForCurrentPage(panels.filter(p => p.id !== selectedPanelId));
+    updatePanelsForCurrentPage(panels.filter(p => p.id !== selectedPanelId), 'Delete panel');
     setSelectedPanelId(null);
   };
   
@@ -709,7 +788,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     node.scaleX(1);
     node.scaleY(1);
     
-    updatePanelsForCurrentPage(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels, 'Resize panel');
   };
   
   // Helper function to find the closest guide
@@ -840,7 +919,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       y: node.y() / scale
     };
     
-    updatePanelsForCurrentPage(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels, 'Move panel');
   };
 
   // Handler for selecting a box
@@ -910,7 +989,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     node.scaleX(1);
     node.scaleY(1);
     
-    updatePanelsForCurrentPage(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels, `Resize ${type} box`);
   };
 
   // Handler for box drag end
@@ -961,7 +1040,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       };
     }
     
-    updatePanelsForCurrentPage(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels, `Move ${type} box`);
   };
 
   // Handler for deleting a box
@@ -993,7 +1072,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       }
     }
     
-    updatePanelsForCurrentPage(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels, `Delete ${type} box`);
     
     // Clear selection
     setSelectedBoxType(null);
@@ -1129,7 +1208,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setSelectedBoxIndex(newBoxIndex);
     setPanelMode('adjust');
     
-    updatePanelsForCurrentPage(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels, 'Add character box');
   };
   
   // Handler for adding dialogue to the selected panel
@@ -1184,7 +1263,7 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       }
     ];
     
-    updatePanelsForCurrentPage(updatedPanels);
+    updatePanelsForCurrentPage(updatedPanels, 'Add text box');
     
     // Auto-select the new text box
     const newBoxIndex = updatedPanels[panelIndex].textBoxes.length - 1;
@@ -1243,9 +1322,18 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
 
   // Mouse handlers for drawing
   const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
-    // If clicking directly on the stage (background), deselect current panel
+    // If clicking directly on the stage (background), deselect current panel and boxes
     if (e.target === e.currentTarget) {
+      console.log('Mouse down deselecting panel');
       setSelectedPanelId(null);
+      setSelectedBoxType(null);
+      setSelectedBoxIndex(null);
+      // Also exit drawing modes
+      if (panelMode !== 'adjust') {
+        setPanelMode('adjust');
+        setPreviewBox(null);
+        setDrawingStartPos(null);
+      }
       return;
     }
     
@@ -1932,6 +2020,22 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     setSelectedPanelId(null); // Clear selection when switching pages
   };
 
+  const handleTemplateSelect = (templateId: string) => {
+    // Check if current page has any panels
+    const currentPage = localPages[currentPageIndex];
+    const hasPanels = currentPage && currentPage.panels && currentPage.panels.length > 0;
+    
+    if (hasPanels) {
+      // Show warning modal
+      setPendingTemplateId(templateId);
+      setShowTemplateDialog(false);
+      setShowTemplateWarning(true);
+    } else {
+      // Apply template directly if no existing panels
+      applyPageTemplate(templateId);
+    }
+  };
+
   const applyPageTemplate = (templateId: string) => {
     const template = pageTemplates.find(t => t.id === templateId);
     if (!template) return;
@@ -1974,14 +2078,45 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
     
     setSelectedPanelId(null);
     setShowTemplateDialog(false);
+    setShowTemplateWarning(false);
+    setPendingTemplateId(null);
+  };
+
+  const handleTemplateWarningConfirm = () => {
+    if (pendingTemplateId) {
+      applyPageTemplate(pendingTemplateId);
+    }
+  };
+
+  const handleTemplateWarningCancel = () => {
+    setShowTemplateWarning(false);
+    setPendingTemplateId(null);
+    setShowTemplateDialog(true);
   };
 
 
   const handleBackgroundClick = (e: KonvaEventObject<MouseEvent>) => {
-    // If clicking directly on the stage (background), deselect current panel
+    console.log('Background click:', {
+      target: e.target,
+      currentTarget: e.currentTarget,
+      targetName: e.target.name(),
+      targetClassName: e.target.className,
+      isStage: e.target === e.currentTarget
+    });
+    
+    // If clicking directly on the stage (background), deselect current panel and boxes
     // Check that the target is the stage itself
     if (e.target === e.currentTarget) {
+      console.log('Deselecting panel');
       setSelectedPanelId(null);
+      setSelectedBoxType(null);
+      setSelectedBoxIndex(null);
+      // Also exit drawing modes
+      if (panelMode !== 'adjust') {
+        setPanelMode('adjust');
+        setPreviewBox(null);
+        setDrawingStartPos(null);
+      }
     }
   };
 
@@ -2010,12 +2145,16 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         selectedPanelId={selectedPanelId}
         isSaving={isSaving}
         hasUnsavedChanges={hasUnsavedChanges}
+        canUndo={canUndo}
+        canRedo={canRedo}
         onAddPanel={handleAddPanel}
         onDeletePanel={handleDeletePanel}
         onShowTemplateDialog={() => setShowTemplateDialog(true)}
         onSaveProject={handleSaveProject}
         onShowProjectManager={onShowProjectManager}
         onShowExport={onShowExport}
+        onUndo={undo}
+        onRedo={redo}
       />
   
       {/* Main Content Area */}
@@ -2144,10 +2283,40 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
         {/* Canvas and Panel Editor */}
         <div className="flex-1 flex overflow-hidden">
           {/* Canvas Area */}
-          <div className="flex-1 bg-white overflow-auto">
+          <div 
+            className="flex-1 bg-white overflow-auto"
+            onClick={(e) => {
+              // Only deselect if clicking directly on the canvas area, not on child elements
+              if (e.target === e.currentTarget) {
+                console.log('Canvas area click deselecting');
+                setSelectedPanelId(null);
+                setSelectedBoxType(null);
+                setSelectedBoxIndex(null);
+                if (panelMode !== 'adjust') {
+                  setPanelMode('adjust');
+                  setPreviewBox(null);
+                  setDrawingStartPos(null);
+                }
+              }
+            }}
+          >
             
             <div 
               className="min-h-full min-w-full flex items-center justify-center"
+              onClick={(e) => {
+                // Only deselect if clicking directly on this container, not on child elements
+                if (e.target === e.currentTarget) {
+                  console.log('Canvas inner container click deselecting');
+                  setSelectedPanelId(null);
+                  setSelectedBoxType(null);
+                  setSelectedBoxIndex(null);
+                  if (panelMode !== 'adjust') {
+                    setPanelMode('adjust');
+                    setPreviewBox(null);
+                    setDrawingStartPos(null);
+                  }
+                }
+              }}
               style={{
                 // Dynamic sizing based on focus mode
                 width: isPanelFocusMode && focusedPanel 
@@ -2520,8 +2689,16 @@ const MangaEditor: React.FC<MangaEditorProps> = ({
       <TemplateModal 
         isOpen={showTemplateDialog}
         onClose={() => setShowTemplateDialog(false)}
-        onApplyTemplate={applyPageTemplate}
+        onApplyTemplate={handleTemplateSelect}
         pageSize={pageSize}
+      />
+
+      {/* Template Warning Modal */}
+      <TemplateWarningModal
+        isOpen={showTemplateWarning}
+        onClose={handleTemplateWarningCancel}
+        onConfirm={handleTemplateWarningConfirm}
+        templateName={pendingTemplateId ? pageTemplates.find(t => t.id === pendingTemplateId)?.name || '' : ''}
       />
       
       {/* Panel History Modal */}

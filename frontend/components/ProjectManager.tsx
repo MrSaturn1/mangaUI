@@ -13,14 +13,18 @@ interface ProjectManagerProps {
   apiEndpoint: string;
   onSelectProject?: (project: Project, pages: Page[]) => void;
   onSaveProject?: (projectId: string, pages: Page[]) => void;
+  onClose?: () => void;
   currentPages?: Page[];
+  activeProject?: Project | null;
 }
 
 const ProjectManager: React.FC<ProjectManagerProps> = ({ 
   apiEndpoint,
   onSelectProject,
   onSaveProject,
-  currentPages = []
+  onClose,
+  currentPages = [],
+  activeProject
 }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
@@ -35,6 +39,13 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({
   useEffect(() => {
     fetchProjects();
   }, []);
+
+  // Sync currentProject with activeProject from parent
+  useEffect(() => {
+    if (activeProject) {
+      setCurrentProject(activeProject);
+    }
+  }, [activeProject]);
 
   // Fetch all projects from the API
   const fetchProjects = async (): Promise<void> => {
@@ -331,12 +342,25 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({
     <div className="bg-white rounded-lg shadow-lg p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Manga Projects</h2>
-        <button
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500"
-          onClick={() => setShowNewProjectModal(true)}
-        >
-          Create New Project
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500"
+            onClick={() => setShowNewProjectModal(true)}
+          >
+            Create New Project
+          </button>
+          {onClose && (
+            <button
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md"
+              onClick={onClose}
+              title="Close Project Manager"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       
       {error && (

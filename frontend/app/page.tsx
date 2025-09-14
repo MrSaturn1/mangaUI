@@ -68,12 +68,21 @@ export default function Home() {
       
       if (response.ok && data.status === 'success') {
         if (data.projects && data.projects.length > 0) {
-          // Load the first project
-          const firstProject = data.projects[0];
-          setCurrentProject(firstProject);
+          // Try to load the last used project from localStorage
+          const lastProjectId = localStorage.getItem('lastUsedProjectId');
+          let projectToLoad = data.projects[0]; // Default to first project
+          
+          if (lastProjectId) {
+            const lastProject = data.projects.find(p => p.id === lastProjectId);
+            if (lastProject) {
+              projectToLoad = lastProject;
+            }
+          }
+          
+          setCurrentProject(projectToLoad);
           
           // Load project pages
-          const projectResponse = await fetch(`${apiEndpoint}/projects/${firstProject.id}`);
+          const projectResponse = await fetch(`${apiEndpoint}/projects/${projectToLoad.id}`);
           const projectData = await projectResponse.json();
           
           if (projectResponse.ok && projectData.status === 'success') {
@@ -99,9 +108,20 @@ export default function Home() {
   const loadProjectsFromLocalStorage = () => {
     const localProjects = JSON.parse(localStorage.getItem('mangaProjects') || '[]');
     if (localProjects.length > 0) {
-      setCurrentProject(localProjects[0]);
+      // Try to load the last used project from localStorage
+      const lastProjectId = localStorage.getItem('lastUsedProjectId');
+      let projectToLoad = localProjects[0]; // Default to first project
+      
+      if (lastProjectId) {
+        const lastProject = localProjects.find(p => p.id === lastProjectId);
+        if (lastProject) {
+          projectToLoad = lastProject;
+        }
+      }
+      
+      setCurrentProject(projectToLoad);
       const projectPages = JSON.parse(
-        localStorage.getItem(`project_${localProjects[0].id}`) || '[]'
+        localStorage.getItem(`project_${projectToLoad.id}`) || '[]'
       );
       setPages(projectPages);
     } else {
@@ -128,7 +148,10 @@ export default function Home() {
       const data = await response.json();
       
       if (response.ok && data.status === 'success' && data.project) {
-        setCurrentProject(data.project as Project);
+        const newProject = data.project as Project;
+        setCurrentProject(newProject);
+        // Remember this as the last used project
+        localStorage.setItem('lastUsedProjectId', newProject.id);
         // New projects now start with 1 page from the backend
         setPages([{
           id: 'page-1',
@@ -150,6 +173,8 @@ export default function Home() {
       const projects = [newProject];
       localStorage.setItem('mangaProjects', JSON.stringify(projects));
       setCurrentProject(newProject);
+      // Remember this as the last used project
+      localStorage.setItem('lastUsedProjectId', newProject.id);
       setPages([{
         id: 'page-1',
         panels: []
@@ -194,6 +219,9 @@ export default function Home() {
   // Function to handle project selection
   const handleSelectProject = async (project: Project, projectPages: Page[]) => {
     setCurrentProject(project);
+    
+    // Remember this as the last used project
+    localStorage.setItem('lastUsedProjectId', project.id);
     
     // If pages weren't provided, fetch them
     if (!projectPages || projectPages.length === 0) {
@@ -370,13 +398,22 @@ export default function Home() {
             <>
               {/* Project manager overlay */}
               {showProjectManager && (
-                <div className="absolute inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                <div 
+                  className="absolute inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4"
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) {
+                      setShowProjectManager(false);
+                    }
+                  }}
+                >
                   <div className="w-full max-w-4xl">
                     <ProjectManager
                       apiEndpoint={apiEndpoint}
                       onSelectProject={handleSelectProject}
                       onSaveProject={handleSaveProject}
+                      onClose={() => setShowProjectManager(false)}
                       currentPages={pages}
+                      activeProject={currentProject}
                     />
                   </div>
                 </div>
